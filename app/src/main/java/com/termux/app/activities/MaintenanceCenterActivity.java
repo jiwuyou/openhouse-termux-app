@@ -4,13 +4,16 @@ import android.content.res.ColorStateList;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -57,6 +60,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private TextView liveLogView;
     private TextView helpBodyView;
     private TextView terminalStatusView;
+    private Button customPortButton;
     private Button viewFullLogButton;
     private Button openBrowserButton;
     private FrameLayout terminalContainer;
@@ -66,6 +70,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private String currentStageSlug;
     private String currentStageLabel;
     private String lastHandledMarker;
+    private StageAction pendingStageAction;
     private boolean commandInFlight;
     private boolean maintenanceSessionInitPosted;
     private String terminalFailureMessage;
@@ -91,6 +96,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         liveLogView = findViewById(R.id.liveLog);
         helpBodyView = findViewById(R.id.helpBody);
         terminalStatusView = findViewById(R.id.embeddedTerminalStatus);
+        customPortButton = findViewById(R.id.buttonStartCustomPort);
         viewFullLogButton = findViewById(R.id.buttonViewFullLog);
         openBrowserButton = findViewById(R.id.buttonOpenBrowser);
         terminalContainer = findViewById(R.id.maintenanceTerminalContainer);
@@ -138,6 +144,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         bindStageButton(StageAction.INSTALL_OPENCODE, R.id.buttonInstallOpenCode);
         bindStageButton(StageAction.START, R.id.buttonStart);
         bindStageButton(StageAction.RESTART, R.id.buttonRestart);
+        customPortButton.setOnClickListener(v -> showCustomPortDialog());
         openBrowserButton.setOnClickListener(v -> openBrowser());
     }
 
@@ -236,11 +243,23 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void runStage(StageAction stageAction) {
+        runStage(stageAction, false);
+    }
+
+    private void runStage(StageAction stageAction, boolean skipPreflightRefresh) {
         if (commandInFlight) {
             Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
             return;
         }
 
+        if (!skipPreflightRefresh && stageAction.shouldRefreshBeforeRun()) {
+            pendingStageAction = stageAction;
+            currentStageView.setText("刷新状态后执行：" + stageAction.label(this));
+            requestStageStatusRefresh();
+            return;
+        }
+
+        pendingStageAction = null;
         ensureMaintenanceSession();
         if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
             || !maintenanceSession.getTerminalSession().isRunning()) {
@@ -276,10 +295,14 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private String buildStageExecutionCommand(StageAction stageAction) throws IOException {
-        String scriptBody = loadAsset(stageAction.assetName)
-            .replace("__PORT__", Integer.toString(OPENCODE_PORT));
-        String wrapperScript = buildWrapperScript(stageAction.label(this), stageAction.slug, scriptBody);
-        String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageAction.slug + ".sh";
+        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, OPENCODE_PORT);
+    }
+
+    private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port) throws IOException {
+        String scriptBody = loadAsset(assetName)
+            .replace("__PORT__", Integer.toString(port));
+        String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody);
+        String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
 
         StringBuilder builder = new StringBuilder();
         builder.append("mkdir -p ").append(shellQuote(TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs")).append('\n');
@@ -292,6 +315,77 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         builder.append("/data/data/com.termux/files/usr/bin/bash ").append(shellQuote(tempScriptPath)).append('\n');
         builder.append("rm -f ").append(shellQuote(tempScriptPath)).append('\n');
         return builder.toString();
+    }
+
+    private void showCustomPortDialog() {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint(getString(R.string.custom_port_dialog_hint));
+        input.setText(Integer.toString(OPENCODE_PORT));
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.custom_port_dialog_title)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                int port;
+                try {
+                    port = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, R.string.custom_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (port < 1 || port > 65535) {
+                    Toast.makeText(this, R.string.custom_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                runCustomPortStart(port);
+            })
+            .show();
+    }
+
+    private void runCustomPortStart(int port) {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ensureMaintenanceSession();
+        if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
+            || !maintenanceSession.getTerminalSession().isRunning()) {
+            Toast.makeText(this, R.string.status_terminal_failed, Toast.LENGTH_SHORT).show();
+            refreshStatus();
+            return;
+        }
+
+        currentStageSlug = "start_port_" + port;
+        currentStageLabel = getString(R.string.custom_port_stage_label, port);
+        commandInFlight = true;
+        lastHandledMarker = null;
+        terminalStatusView.setText(R.string.embedded_terminal_status_busy);
+        liveLogView.setText(getString(R.string.result_placeholder));
+        updateLogButtonState();
+        refreshStatus();
+
+        try {
+            String command = buildAssetExecutionCommand(currentStageLabel, currentStageSlug, "start-opencode.sh", port);
+            maintenanceSession.getTerminalSession().write(command);
+            if (!command.endsWith("\n")) {
+                maintenanceSession.getTerminalSession().write("\n");
+            }
+        } catch (IOException e) {
+            commandInFlight = false;
+            terminalStatusView.setText(R.string.embedded_terminal_status_ready);
+            liveLogView.setText(getString(R.string.full_log_error, e.getMessage()));
+            refreshStatus();
+        }
     }
 
     private String buildWrapperScript(String stageLabel, String stageSlug, String scriptBody) {
@@ -435,6 +529,16 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     return;
                 }
             }
+
+            Integer exitCode = readLastExitCode(currentStageSlug);
+            if (currentStageLabel != null && exitCode != null) {
+                currentStageView.setText((exitCode == 0 ? "已完成：" : "失败：") + currentStageLabel);
+                return;
+            }
+            if (currentStageLabel != null) {
+                currentStageView.setText(currentStageLabel);
+                return;
+            }
         }
 
         currentStageView.setText(getString(R.string.current_stage_placeholder));
@@ -486,6 +590,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                 }
                 applyStagePresentations();
                 refreshStatus();
+                if (!commandInFlight && pendingStageAction != null) {
+                    StageAction stageAction = pendingStageAction;
+                    pendingStageAction = null;
+                    runStage(stageAction, true);
+                    return;
+                }
                 if (stageStatusCheckQueued) {
                     stageStatusCheckQueued = false;
                     requestStageStatusRefresh();
@@ -505,6 +615,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             button.setTextColor(ContextCompat.getColor(this, presentation.textColorRes));
             button.setEnabled(!commandInFlight && presentation.state != StageUiState.CHECKING && presentation.state != StageUiState.BLOCKED);
             button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
+        }
+
+        if (customPortButton != null) {
+            customPortButton.setEnabled(!commandInFlight);
+            customPortButton.setAlpha(customPortButton.isEnabled() ? 1.0f : 0.78f);
         }
     }
 
@@ -713,8 +828,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private Integer readLastExitCode(StageAction stageAction) {
+        return readLastExitCode(stageAction.slug);
+    }
+
+    private Integer readLastExitCode(String stageSlug) {
         try {
-            String content = MaintainerLogStore.readLog(stageAction.slug);
+            String content = MaintainerLogStore.readLog(stageSlug);
             Matcher matcher = DONE_PATTERN.matcher(content);
             Integer exitCode = null;
             while (matcher.find()) {
@@ -1044,6 +1163,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                 default:
                     return activity.getString(R.string.button_restart);
             }
+        }
+
+        boolean shouldRefreshBeforeRun() {
+            return this == INSTALL_OPENCODE || this == START || this == RESTART;
         }
 
         static StageAction fromSlug(String slug) {
