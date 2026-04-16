@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.termux.R;
+import com.termux.app.OpenCodeCdpBridge;
 import com.termux.app.OpenCodeSettings;
 import com.termux.shared.activity.ActivityUtils;
 import com.termux.shared.logger.Logger;
@@ -458,8 +459,24 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void openBrowser() {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOpenCodeUrl()));
-        startActivity(intent);
+        String url = getOpenCodeUrl();
+        backgroundExecutor.execute(() -> {
+            boolean openedViaCdp = OpenCodeCdpBridge.isCdpActive() && OpenCodeCdpBridge.openTab(url);
+            runOnUiThread(() -> {
+                if (openedViaCdp) {
+                    Toast.makeText(this, R.string.quick_launch_browser_tab, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                    Toast.makeText(this, R.string.quick_launch_browser_fallback, Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open OpenCode browser URL", e);
+                    Toast.makeText(this, getString(R.string.full_log_error, e.getMessage()), Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
     }
 
     private void refreshStatus() {

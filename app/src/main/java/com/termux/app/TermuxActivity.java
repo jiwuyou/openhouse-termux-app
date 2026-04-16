@@ -27,6 +27,7 @@ import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.termux.R;
+import com.termux.app.OpenCodeCdpBridge;
 import com.termux.app.OpenCodeSettings;
 import com.termux.app.api.file.FileReceiverActivity;
 import com.termux.app.terminal.TermuxActivityRootView;
@@ -656,6 +657,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
                 for (int attempt = 0; attempt < 10; attempt++) {
                     if (isOpenCodeReachable(port)) {
+                        openOpenCodeInBrowser(port);
                         postToast(getString(R.string.quick_launch_ready, port), false);
                         return;
                     }
@@ -675,6 +677,23 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         return runTermuxShellCommand(
             "proot-distro login ubuntu -- bash -lc 'curl -fsS --max-time 3 http://127.0.0.1:" + port + "/ >/dev/null 2>&1'"
         ).isSuccess();
+    }
+
+    private void openOpenCodeInBrowser(int port) {
+        String url = OpenCodeSettings.getLoopbackUrl(port);
+        if (OpenCodeCdpBridge.isCdpActive() && OpenCodeCdpBridge.openTab(url)) {
+            postToast(getString(R.string.quick_launch_browser_tab), false);
+            return;
+        }
+
+        runOnUiThread(() -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                showToast(getString(R.string.quick_launch_browser_fallback), false);
+            } catch (Exception e) {
+                Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open OpenCode browser URL", e);
+            }
+        });
     }
 
     private ShellCheckResult runTermuxShellCommand(String command) {
