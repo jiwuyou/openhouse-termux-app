@@ -27,6 +27,7 @@ import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.termux.R;
+import com.termux.app.OpenCodeSettings;
 import com.termux.app.api.file.FileReceiverActivity;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
@@ -40,6 +41,7 @@ import com.termux.shared.data.DataUtils;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
 import com.termux.app.activities.HelpActivity;
+import com.termux.app.activities.MaintenanceCenterActivity;
 import com.termux.app.activities.SettingsActivity;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
@@ -65,7 +67,13 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A terminal emulator activity.
@@ -193,6 +201,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private static final String ARG_ACTIVITY_RECREATED = "activity_recreated";
 
     private static final String LOG_TAG = "TermuxActivity";
+    private final ExecutorService mOpenCodeLaunchExecutor = Executors.newSingleThreadExecutor();
+    private volatile boolean mOpenCodeLaunchInFlight = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -250,6 +260,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         setNewSessionButtonView();
 
         setToggleKeyboardView();
+
+        setOpenCodeQuickLaunchButtonView();
+
+        setMaintenanceCenterButtonView();
 
         registerForContextMenu(mTerminalView);
 
@@ -363,6 +377,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         } catch (Exception e) {
             // ignore.
         }
+
+        mOpenCodeLaunchExecutor.shutdownNow();
     }
 
     @Override
@@ -592,6 +608,135 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             toggleTerminalToolbar();
             return true;
         });
+    }
+
+    private void setMaintenanceCenterButtonView() {
+        findViewById(R.id.maintenance_center_button).setOnClickListener(v ->
+            ActivityUtils.startActivity(this, new Intent(this, MaintenanceCenterActivity.class))
+        );
+    }
+
+    private void setOpenCodeQuickLaunchButtonView() {
+        View button = findViewById(R.id.opencode_quick_launch_button);
+        button.setOnClickListener(v -> launchOpenCodeOnDefaultPort());
+        button.setOnLongClickListener(v -> {
+            ActivityUtils.startActivity(this, new Intent(this, MaintenanceCenterActivity.class));
+            return true;
+        });
+    }
+
+    private void launchOpenCodeOnDefaultPort() {
+        if (mOpenCodeLaunchInFlight) {
+            showToast(getString(R.string.quick_launch_busy), false);
+            return;
+        }
+
+        int port = OpenCodeSettings.getDefaultPort(this);
+        mOpenCodeLaunchInFlight = true;
+        showToast(getString(R.string.quick_launch_starting, port), false);
+        mOpenCodeLaunchExecutor.execute(() -> {
+            try {
+                if (isOpenCodeReachable(port)) {
+                    postToast(getString(R.string.quick_launch_ready, port), false);
+                    return;
+                }
+
+                ShellCheckResult installationCheck = runTermuxShellCommand(
+                    "proot-distro login ubuntu -- bash -lc 'set -euo pipefail; export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$PATH\"; command -v opencode >/dev/null 2>&1 || test -x \"$HOME/.opencode/bin/opencode\"'"
+                );
+                if (!installationCheck.isSuccess()) {
+                    postToast(getString(R.string.quick_launch_missing), true);
+                    return;
+                }
+
+                runTermuxShellCommand(
+                    "mkdir -p \"$HOME/.maintainer-logs\" && " +
+                        "nohup proot-distro login ubuntu -- bash -lc 'set -euo pipefail; export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$PATH\"; export BROWSER=/bin/true; exec opencode web --hostname 127.0.0.1 --port " + port + " --print-logs >\"$HOME/.opencode-web.log\" 2>&1' >>\"$HOME/.maintainer-logs/opencode-quick-launch.log\" 2>&1 < /dev/null &"
+                );
+
+                for (int attempt = 0; attempt < 10; attempt++) {
+                    if (isOpenCodeReachable(port)) {
+                        postToast(getString(R.string.quick_launch_ready, port), false);
+                        return;
+                    }
+                    Thread.sleep(1000);
+                }
+
+                postToast(getString(R.string.quick_launch_failed), true);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                mOpenCodeLaunchInFlight = false;
+            }
+        });
+    }
+
+    private boolean isOpenCodeReachable(int port) {
+        return runTermuxShellCommand(
+            "proot-distro login ubuntu -- bash -lc 'curl -fsS --max-time 3 http://127.0.0.1:" + port + "/ >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
+    private ShellCheckResult runTermuxShellCommand(String command) {
+        Process process = null;
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(
+                TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + "/bash",
+                "-lc",
+                command
+            );
+            processBuilder.redirectErrorStream(true);
+            processBuilder.directory(getFilesDir());
+            Map<String, String> environment = processBuilder.environment();
+            environment.put("HOME", TermuxConstants.TERMUX_HOME_DIR_PATH);
+            environment.put("PREFIX", TermuxConstants.TERMUX_PREFIX_DIR_PATH);
+            environment.put("PATH", TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + ":/system/bin");
+            environment.put("LD_LIBRARY_PATH", TermuxConstants.TERMUX_LIB_PREFIX_DIR_PATH);
+            environment.put("TMPDIR", TermuxConstants.TERMUX_TMP_PREFIX_DIR_PATH);
+            environment.put("LANG", "C.UTF-8");
+
+            process = processBuilder.start();
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() < 600) {
+                        if (output.length() > 0) output.append('\n');
+                        output.append(line);
+                    }
+                }
+            }
+
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return new ShellCheckResult(124, output.toString());
+            }
+
+            return new ShellCheckResult(process.exitValue(), output.toString());
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to run OpenCode quick launch command", e);
+            return new ShellCheckResult(1, e.getMessage());
+        } finally {
+            if (process != null) process.destroy();
+        }
+    }
+
+    private void postToast(String text, boolean longDuration) {
+        runOnUiThread(() -> showToast(text, longDuration));
+    }
+
+    private static final class ShellCheckResult {
+        final int exitCode;
+        final String output;
+
+        ShellCheckResult(int exitCode, String output) {
+            this.exitCode = exitCode;
+            this.output = output == null ? "" : output;
+        }
+
+        boolean isSuccess() {
+            return exitCode == 0;
+        }
     }
 
 

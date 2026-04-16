@@ -87,6 +87,7 @@
     <string name="action_open_help">Help</string>
     <string name="action_open_settings">Settings</string>
     <string name="action_open_maintenance_center">打开维护中心</string>
+    <string name="action_launch_opencode_default">启动默认端口 OpenCode</string>
 
     <string name="action_report_issue">Report Issue</string>
     <string name="msg_generating_report">Generating Report</string>
@@ -247,6 +248,8 @@
     <string name="button_install_opencode">安装 OpenCode</string>
     <string name="button_start">启动 OpenCode</string>
     <string name="button_restart">重启 OpenCode</string>
+    <string name="button_configure_default_port">设置默认端口</string>
+    <string name="button_configure_default_port_with_value">设置默认端口（当前 %1$d）</string>
     <string name="button_start_custom_port">自定义端口启动 OpenCode</string>
     <string name="button_open_browser">打开浏览器</string>
     <string name="button_view_full_log">查看完整日志</string>
@@ -256,11 +259,19 @@
     <string name="result_title">最近日志</string>
     <string name="result_placeholder">还没有执行任何阶段。</string>
     <string name="help_title">说明</string>
-    <string name="help_body">1. 按顺序从上到下点击每个阶段，并观察底部终端中的原始输入输出。\n\n2. “查看完整日志”会打开当前阶段在 ~/.maintainer-logs 下保存的完整日志文件。\n\n3. “写入路径和文档”会创建 ~/product-docs 和 ~/workspace。\n\n4. “更新 Termux 软件包”会安装 proot-distro 和 curl。\n\n5. “下载 Ubuntu”会安装 Ubuntu rootfs。\n\n6. “更新 Ubuntu 软件包”会在 Ubuntu 内安装 curl、证书、git 和 procps。\n\n7. “安装 OpenCode”会在 Ubuntu 内安装 OpenCode 运行时。\n\n8. “启动 OpenCode”会启动网页服务，浏览器日常使用地址是 http://127.0.0.1:8765 。\n\n9. “自定义端口启动 OpenCode”允许你输入任意端口启动网页服务，适合和默认端口并行排障。</string>
+    <string name="help_body">1. 按顺序从上到下点击每个阶段，并观察底部终端中的原始输入输出。\n\n2. “查看完整日志”会打开当前阶段在 ~/.maintainer-logs 下保存的完整日志文件。\n\n3. “写入路径和文档”会创建 ~/product-docs 和 ~/workspace。\n\n4. “更新 Termux 软件包”会安装 proot-distro 和 curl。\n\n5. “下载 Ubuntu”会安装 Ubuntu rootfs。\n\n6. “更新 Ubuntu 软件包”会在 Ubuntu 内安装 curl、证书、git 和 procps。\n\n7. “安装 OpenCode”会在 Ubuntu 内安装 OpenCode 运行时。\n\n8. “设置默认端口”会修改维护中心和主界面快捷启动共用的 OpenCode 端口。\n\n9. “启动 OpenCode”会按当前默认端口启动网页服务。\n\n10. “自定义端口启动 OpenCode”允许你输入任意端口启动网页服务，适合和默认端口并行排障。</string>
     <string name="custom_port_dialog_title">输入 OpenCode 端口</string>
     <string name="custom_port_dialog_hint">例如 8766</string>
     <string name="custom_port_invalid">请输入 1 到 65535 之间的端口号</string>
     <string name="custom_port_stage_label">启动 OpenCode（端口 %1$d）</string>
+    <string name="default_port_saved">默认端口已更新为 %1$d</string>
+    <string name="default_port_label">默认端口：%1$d</string>
+    <string name="default_browser_label">浏览器地址：%1$s</string>
+    <string name="quick_launch_busy">OpenCode 启动中，请稍候。</string>
+    <string name="quick_launch_starting">正在启动 OpenCode，端口 %1$d</string>
+    <string name="quick_launch_ready">OpenCode 已可通过端口 %1$d 访问</string>
+    <string name="quick_launch_failed">OpenCode 启动失败，请到维护中心查看日志</string>
+    <string name="quick_launch_missing">OpenCode 尚未安装，请先到维护中心完成安装</string>
     <string name="status_ready_title">维护环境就绪</string>
     <string name="status_running_title">阶段执行中</string>
     <string name="status_terminal_starting">正在启动维护终端</string>

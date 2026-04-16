@@ -58,6 +58,14 @@
                     android:lineSpacingExtra="2dp"
                     android:textColor="@color/textSecondary"
                     android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/buttonConfigureDefaultPort"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/button_configure_default_port"
+                    android:textAllCaps="false" />
             </LinearLayout>
 
             <LinearLayout

@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.termux.R;
+import com.termux.app.OpenCodeSettings;
 import com.termux.shared.activity.ActivityUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.shell.ShellUtils;
@@ -49,8 +50,6 @@ import java.util.concurrent.TimeUnit;
 public class MaintenanceCenterActivity extends AppCompatActivity {
 
     private static final String LOG_TAG = "MaintenanceCenter";
-    private static final int OPENCODE_PORT = 8765;
-    private static final String OPENCODE_URL = "http://127.0.0.1:" + OPENCODE_PORT;
     private static final int LOG_CHAR_LIMIT = 24000;
     private static final Pattern DONE_PATTERN = Pattern.compile("__TERMUX_MAINT_DONE__:([a-zA-Z0-9_-]+):(\\d+)");
 
@@ -60,6 +59,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private TextView liveLogView;
     private TextView helpBodyView;
     private TextView terminalStatusView;
+    private Button configureDefaultPortButton;
     private Button customPortButton;
     private Button viewFullLogButton;
     private Button openBrowserButton;
@@ -96,6 +96,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         liveLogView = findViewById(R.id.liveLog);
         helpBodyView = findViewById(R.id.helpBody);
         terminalStatusView = findViewById(R.id.embeddedTerminalStatus);
+        configureDefaultPortButton = findViewById(R.id.buttonConfigureDefaultPort);
         customPortButton = findViewById(R.id.buttonStartCustomPort);
         viewFullLogButton = findViewById(R.id.buttonViewFullLog);
         openBrowserButton = findViewById(R.id.buttonOpenBrowser);
@@ -107,6 +108,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
         bindStageButtons();
         initializeStagePresentations();
+        configureDefaultPortButton.setOnClickListener(v -> showDefaultPortDialog());
         viewFullLogButton.setOnClickListener(v -> openFullLog());
         updateLogButtonState();
         refreshStatus();
@@ -295,7 +297,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private String buildStageExecutionCommand(StageAction stageAction) throws IOException {
-        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, OPENCODE_PORT);
+        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, getDefaultOpenCodePort());
     }
 
     private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port) throws IOException {
@@ -326,7 +328,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setHint(getString(R.string.custom_port_dialog_hint));
-        input.setText(Integer.toString(OPENCODE_PORT));
+        input.setText(Integer.toString(getDefaultOpenCodePort()));
         input.setSelection(input.getText().length());
 
         new AlertDialog.Builder(this)
@@ -347,6 +349,39 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     return;
                 }
                 runCustomPortStart(port);
+            })
+            .show();
+    }
+
+    private void showDefaultPortDialog() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint(getString(R.string.custom_port_dialog_hint));
+        input.setText(Integer.toString(getDefaultOpenCodePort()));
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.button_configure_default_port)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                int port;
+                try {
+                    port = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, R.string.custom_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (!OpenCodeSettings.isValidPort(port)) {
+                    Toast.makeText(this, R.string.custom_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                OpenCodeSettings.setDefaultPort(this, port);
+                Toast.makeText(this, getString(R.string.default_port_saved, port), Toast.LENGTH_SHORT).show();
+                refreshStatus();
+                requestStageStatusRefresh();
             })
             .show();
     }
@@ -423,7 +458,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void openBrowser() {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(OPENCODE_URL));
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOpenCodeUrl()));
         startActivity(intent);
     }
 
@@ -442,7 +477,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
         StringBuilder body = new StringBuilder();
         if (terminalReady) {
-            body.append("维护终端：").append(getString(R.string.status_terminal_ready)).append('\n');
+        body.append("维护终端：").append(getString(R.string.status_terminal_ready)).append('\n');
         } else if (terminalFailureMessage != null && !terminalFailureMessage.isEmpty()) {
             body.append("维护终端：").append(getString(R.string.status_terminal_failed)).append('\n');
             body.append("失败原因：").append(terminalFailureMessage).append('\n');
@@ -451,7 +486,8 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         }
         body.append("阶段执行：").append(commandInFlight ? "进行中" : "空闲").append('\n');
         body.append("OpenCode 端点：").append(getOpenCodeStatusText()).append('\n');
-        body.append("浏览器地址：").append(OPENCODE_URL).append('\n');
+        body.append(getString(R.string.default_port_label, getDefaultOpenCodePort())).append('\n');
+        body.append(getString(R.string.default_browser_label, getOpenCodeUrl())).append('\n');
         body.append("产品文档：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/product-docs").append('\n');
         body.append("工作区：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/workspace").append('\n');
         body.append("阶段校验：").append(getStageOverviewText());
@@ -605,6 +641,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void applyStagePresentations() {
+        if (configureDefaultPortButton != null) {
+            configureDefaultPortButton.setText(getString(R.string.button_configure_default_port_with_value, getDefaultOpenCodePort()));
+            configureDefaultPortButton.setEnabled(!commandInFlight);
+            configureDefaultPortButton.setAlpha(configureDefaultPortButton.isEnabled() ? 1.0f : 0.78f);
+        }
+
         for (StageAction stageAction : StageAction.values()) {
             Button button = stageButtons.get(stageAction);
             StagePresentation presentation = stagePresentations.get(stageAction);
@@ -848,8 +890,16 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
     private boolean isOpenCodeWebReachable() {
         return runTermuxCommand(
-            "proot-distro login ubuntu -- bash -lc 'curl -fsS --max-time 3 http://127.0.0.1:" + OPENCODE_PORT + "/ >/dev/null 2>&1'"
+            "proot-distro login ubuntu -- bash -lc 'curl -fsS --max-time 3 http://127.0.0.1:" + getDefaultOpenCodePort() + "/ >/dev/null 2>&1'"
         ).isSuccess();
+    }
+
+    private int getDefaultOpenCodePort() {
+        return OpenCodeSettings.getDefaultPort(this);
+    }
+
+    private String getOpenCodeUrl() {
+        return OpenCodeSettings.getDefaultLoopbackUrl(this);
     }
 
     private void updateLogButtonState() {
