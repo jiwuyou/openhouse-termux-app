@@ -1,9 +1,7 @@
 PORT="__PORT__"
 
-is_port_ready() {
-  if exec 3<>"/dev/tcp/127.0.0.1/$PORT"; then
-    exec 3>&-
-    exec 3<&-
+is_web_ready() {
+  if proot-distro login ubuntu -- bash -lc "curl -fsS --max-time 3 http://127.0.0.1:$PORT/ >/dev/null 2>&1"; then
     return 0
   fi
   return 1
@@ -12,10 +10,11 @@ is_port_ready() {
 require_ubuntu
 
 log "正在通过端口 $PORT 重启 OpenCode 网页服务"
-run_logged proot-distro login ubuntu -- bash -lc "set -euo pipefail; export PATH=\"\$HOME/.opencode/bin:\$HOME/.local/bin:\$PATH\"; export BROWSER=/bin/true; pkill -f 'opencode web --hostname 127.0.0.1 --port $PORT' >/dev/null 2>&1 || true; sleep 1; if ! command -v opencode >/dev/null 2>&1 && ! test -x \"\$HOME/.opencode/bin/opencode\"; then echo '尚未安装 OpenCode，请先执行“安装 OpenCode”。' >&2; exit 3; fi; nohup opencode web --hostname 127.0.0.1 --port $PORT --print-logs >\"\$HOME/.opencode-web.log\" 2>&1 < /dev/null &"
+run_logged proot-distro login ubuntu -- bash -lc "set -euo pipefail; export PATH=\"\$HOME/.opencode/bin:\$HOME/.local/bin:\$PATH\"; pkill -f 'opencode web --hostname 127.0.0.1 --port $PORT' >/dev/null 2>&1 || true; sleep 1; if ! command -v opencode >/dev/null 2>&1 && ! test -x \"\$HOME/.opencode/bin/opencode\"; then echo '尚未安装 OpenCode，请先执行“安装 OpenCode”。' >&2; exit 3; fi"
+nohup proot-distro login ubuntu -- bash -lc "set -euo pipefail; export PATH=\"\$HOME/.opencode/bin:\$HOME/.local/bin:\$PATH\"; export BROWSER=/bin/true; exec opencode web --hostname 127.0.0.1 --port $PORT --print-logs >\"\$HOME/.opencode-web.log\" 2>&1" >>"$LOG_FILE" 2>&1 < /dev/null &
 
 for _ in $(seq 1 30); do
-  if is_port_ready; then
+  if is_web_ready; then
     log "OpenCode 已可通过端口 $PORT 访问。"
     exit 0
   fi

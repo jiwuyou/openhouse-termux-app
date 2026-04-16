@@ -847,18 +847,9 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private boolean isOpenCodeWebReachable() {
-        java.net.Socket socket = new java.net.Socket();
-        try {
-            socket.connect(new java.net.InetSocketAddress("127.0.0.1", OPENCODE_PORT), 800);
-            return true;
-        } catch (IOException e) {
-            return false;
-        } finally {
-            try {
-                socket.close();
-            } catch (IOException ignored) {
-            }
-        }
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'curl -fsS --max-time 3 http://127.0.0.1:" + OPENCODE_PORT + "/ >/dev/null 2>&1'"
+        ).isSuccess();
     }
 
     private void updateLogButtonState() {
