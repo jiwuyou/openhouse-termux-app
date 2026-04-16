@@ -16,6 +16,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.widget.NestedScrollView;
 
 import com.termux.R;
 import com.termux.app.OpenCodeCdpBridge;
@@ -60,6 +61,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private TextView liveLogView;
     private TextView helpBodyView;
     private TextView terminalStatusView;
+    private NestedScrollView liveLogScrollView;
     private Button configureDefaultPortButton;
     private Button customPortButton;
     private Button viewFullLogButton;
@@ -95,6 +97,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         statusBodyView = findViewById(R.id.statusBody);
         currentStageView = findViewById(R.id.currentStage);
         liveLogView = findViewById(R.id.liveLog);
+        liveLogScrollView = findViewById(R.id.liveLogScroll);
         helpBodyView = findViewById(R.id.helpBody);
         terminalStatusView = findViewById(R.id.embeddedTerminalStatus);
         configureDefaultPortButton = findViewById(R.id.buttonConfigureDefaultPort);
@@ -483,21 +486,20 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         boolean terminalReady = maintenanceSession != null
             && maintenanceSession.getTerminalSession() != null
             && maintenanceSession.getTerminalSession().isRunning();
+        String stageOverview = getStageOverviewText();
 
         if (commandInFlight) {
             statusHeadlineView.setText(R.string.status_running_title);
-        } else if (terminalReady) {
-            statusHeadlineView.setText(R.string.status_ready_title);
         } else {
-            statusHeadlineView.setText(R.string.status_terminal_failed);
+            statusHeadlineView.setText(R.string.status_ready_title);
         }
 
         StringBuilder body = new StringBuilder();
         if (terminalReady) {
-        body.append("维护终端：").append(getString(R.string.status_terminal_ready)).append('\n');
+            body.append("维护终端：").append(getString(R.string.status_terminal_ready)).append('\n');
         } else if (terminalFailureMessage != null && !terminalFailureMessage.isEmpty()) {
-            body.append("维护终端：").append(getString(R.string.status_terminal_failed)).append('\n');
-            body.append("失败原因：").append(terminalFailureMessage).append('\n');
+            body.append("维护终端：").append(getString(R.string.status_terminal_closed)).append('\n');
+            body.append("终端提示：").append(terminalFailureMessage).append('\n');
         } else {
             body.append("维护终端：").append(getString(R.string.status_terminal_starting)).append('\n');
         }
@@ -507,7 +509,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         body.append(getString(R.string.default_browser_label, getOpenCodeUrl())).append('\n');
         body.append("产品文档：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/product-docs").append('\n');
         body.append("工作区：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/workspace").append('\n');
-        body.append("阶段校验：").append(getStageOverviewText());
+        body.append("阶段校验：").append(stageOverview);
         statusBodyView.setText(body.toString());
         updateCurrentStageSummary();
         updateOpenBrowserButtonState();
@@ -934,6 +936,9 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             liveLogView.setText(content.isEmpty() ? getString(R.string.result_placeholder) : content);
         } catch (IOException e) {
             liveLogView.setText(getString(R.string.full_log_error, e.getMessage()));
+        }
+        if (liveLogScrollView != null) {
+            liveLogScrollView.post(() -> liveLogScrollView.fullScroll(android.view.View.FOCUS_DOWN));
         }
         updateLogButtonState();
     }
