@@ -103,6 +103,18 @@
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <activity
+            android:name=".app.activities.MaintenanceCenterActivity"
+            android:exported="false"
+            android:label="@string/maintenance_center_title"
+            android:theme="@style/Theme.TermuxMaintenance.DayNight.NoActionBar" />
+
+        <activity
+            android:name=".app.activities.MaintenanceLogActivity"
+            android:exported="false"
+            android:label="@string/full_log_title"
+            android:theme="@style/Theme.TermuxMaintenance.DayNight.NoActionBar" />
+
+        <activity
             android:name=".shared.activities.ReportActivity"
             android:theme="@style/Theme.MarkdownViewActivity.DayNight"
             android:documentLaunchMode="intoExisting" />
