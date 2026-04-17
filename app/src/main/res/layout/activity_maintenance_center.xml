@@ -79,6 +79,74 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:text="@string/permissions_title"
+                    android:textColor="@color/textPrimary"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="2dp"
+                    android:text="@string/permissions_legend"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/buttonPermissionBattery"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/button_permission_battery"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/buttonPermissionOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/button_permission_overlay"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/buttonPermissionStorage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/button_permission_storage"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:id="@+id/permissionRequirementHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:lineSpacingExtra="2dp"
+                    android:text="@string/permission_requirement_hint"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="13sp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchDisableBatteryRequirement"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/switch_disable_battery_requirement"
+                    android:textColor="@color/textPrimary" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/panel_bg"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:text="@string/actions_title"
                     android:textColor="@color/textPrimary"
                     android:textSize="18sp"
@@ -118,6 +186,14 @@
                     android:textAllCaps="false" />
 
                 <Button
+                    android:id="@+id/buttonSyncOfficialDocs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/button_sync_official_docs"
+                    android:textAllCaps="false" />
+
+                <Button
                     android:id="@+id/buttonUbuntuPackages"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -131,6 +207,14 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:text="@string/button_install_opencode"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/buttonInstallSystemEnvSkill"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/button_install_system_env_skill"
                     android:textAllCaps="false" />
 
                 <Button

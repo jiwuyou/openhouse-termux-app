@@ -16,4 +16,5 @@
     <color name="stageBlocked">#D9D1C3</color>
     <color name="stageBlockedText">#5B5347</color>
     <color name="stageOnDark">#FFFDF8</color>
+    <color name="openhouseIconBackground">#F3E9CF</color>
 </resources>

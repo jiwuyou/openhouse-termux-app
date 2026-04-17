@@ -1,9 +1,15 @@
 package com.termux.app.activities;
 
+import android.Manifest;
 import android.content.res.ColorStateList;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.PowerManager;
 import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -12,9 +18,11 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.provider.Settings;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
 
@@ -41,7 +49,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,6 +65,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private static final String LOG_TAG = "MaintenanceCenter";
     private static final int LOG_CHAR_LIMIT = 24000;
     private static final Pattern DONE_PATTERN = Pattern.compile("__TERMUX_MAINT_DONE__:([a-zA-Z0-9_-]+):(\\d+)");
+    private static final String OFFICIAL_DOCS_ASSET_DIR = "openhouse/docs-public";
+    private static final String SYSTEM_ENV_SKILL_ASSET_DIR = "openhouse/opencode-skills/system-environment-description";
+    private static final String PREFS_MAINTENANCE = "maintenance_center";
+    private static final String PREF_DISABLE_BATTERY_REQUIREMENT = "disable_battery_requirement";
 
     private TextView statusHeadlineView;
     private TextView statusBodyView;
@@ -61,13 +76,18 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private TextView liveLogView;
     private TextView helpBodyView;
     private TextView terminalStatusView;
+    private TextView permissionRequirementHintView;
     private NestedScrollView liveLogScrollView;
+    private Button permissionBatteryButton;
+    private Button permissionOverlayButton;
+    private Button permissionStorageButton;
     private Button configureDefaultPortButton;
     private Button customPortButton;
     private Button viewFullLogButton;
     private Button openBrowserButton;
     private FrameLayout terminalContainer;
     private TerminalView terminalView;
+    private SwitchCompat disableBatteryRequirementSwitch;
 
     private TermuxSession maintenanceSession;
     private String currentStageSlug;
@@ -80,6 +100,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private Boolean opencodeReachable;
     private boolean stageStatusCheckInFlight;
     private boolean stageStatusCheckQueued;
+    private SharedPreferences maintenancePreferences;
 
     private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
     private final EnumMap<StageAction, Button> stageButtons = new EnumMap<>(StageAction.class);
@@ -100,16 +121,23 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         liveLogScrollView = findViewById(R.id.liveLogScroll);
         helpBodyView = findViewById(R.id.helpBody);
         terminalStatusView = findViewById(R.id.embeddedTerminalStatus);
+        permissionRequirementHintView = findViewById(R.id.permissionRequirementHint);
+        permissionBatteryButton = findViewById(R.id.buttonPermissionBattery);
+        permissionOverlayButton = findViewById(R.id.buttonPermissionOverlay);
+        permissionStorageButton = findViewById(R.id.buttonPermissionStorage);
+        disableBatteryRequirementSwitch = findViewById(R.id.switchDisableBatteryRequirement);
         configureDefaultPortButton = findViewById(R.id.buttonConfigureDefaultPort);
         customPortButton = findViewById(R.id.buttonStartCustomPort);
         viewFullLogButton = findViewById(R.id.buttonViewFullLog);
         openBrowserButton = findViewById(R.id.buttonOpenBrowser);
         terminalContainer = findViewById(R.id.maintenanceTerminalContainer);
+        maintenancePreferences = getSharedPreferences(PREFS_MAINTENANCE, MODE_PRIVATE);
 
         helpBodyView.setText(getString(R.string.help_body));
         currentStageView.setText(R.string.current_stage_placeholder);
         liveLogView.setText(R.string.result_placeholder);
 
+        bindPermissionButtons();
         bindStageButtons();
         initializeStagePresentations();
         configureDefaultPortButton.setOnClickListener(v -> showDefaultPortDialog());
@@ -146,12 +174,26 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         bindStageButton(StageAction.PREPARE, R.id.buttonPrepare);
         bindStageButton(StageAction.TERMUX_PACKAGES, R.id.buttonTermuxPackages);
         bindStageButton(StageAction.INSTALL_UBUNTU, R.id.buttonInstallUbuntu);
+        bindStageButton(StageAction.SYNC_OFFICIAL_DOCS, R.id.buttonSyncOfficialDocs);
         bindStageButton(StageAction.UBUNTU_PACKAGES, R.id.buttonUbuntuPackages);
         bindStageButton(StageAction.INSTALL_OPENCODE, R.id.buttonInstallOpenCode);
+        bindStageButton(StageAction.INSTALL_SYSTEM_ENV_SKILL, R.id.buttonInstallSystemEnvSkill);
         bindStageButton(StageAction.START, R.id.buttonStart);
         bindStageButton(StageAction.RESTART, R.id.buttonRestart);
         customPortButton.setOnClickListener(v -> showCustomPortDialog());
         openBrowserButton.setOnClickListener(v -> openBrowser());
+    }
+
+    private void bindPermissionButtons() {
+        permissionBatteryButton.setOnClickListener(v -> requestBatteryOptimizationExemption());
+        permissionOverlayButton.setOnClickListener(v -> openOverlayPermissionSettings());
+        permissionStorageButton.setOnClickListener(v -> openStoragePermissionSettings());
+        disableBatteryRequirementSwitch.setChecked(!isBatteryRequirementEnabled());
+        disableBatteryRequirementSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            maintenancePreferences.edit().putBoolean(PREF_DISABLE_BATTERY_REQUIREMENT, isChecked).apply();
+            refreshStatus();
+            applyStagePresentations();
+        });
     }
 
     private void bindStageButton(StageAction stageAction, int buttonId) {
@@ -258,6 +300,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             return;
         }
 
+        if (isBatteryRequirementBlocking()) {
+            currentStageView.setText(getString(R.string.permission_requirement_state_required));
+            Toast.makeText(this, R.string.permission_battery_required_toast, Toast.LENGTH_LONG).show();
+            return;
+        }
+
         if (!skipPreflightRefresh && stageAction.shouldRefreshBeforeRun()) {
             pendingStageAction = stageAction;
             currentStageView.setText("刷新状态后执行：" + stageAction.label(this));
@@ -306,7 +354,9 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
     private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port) throws IOException {
         String scriptBody = loadAsset(assetName)
-            .replace("__PORT__", Integer.toString(port));
+            .replace("__PORT__", Integer.toString(port))
+            .replace("__BUNDLED_OFFICIAL_DOCS__", buildBundledAssetWriteSnippet(OFFICIAL_DOCS_ASSET_DIR, "OFFICIAL_DOC_DIR"))
+            .replace("__BUNDLED_SYSTEM_ENV_SKILL__", buildBundledAssetWriteSnippet(SYSTEM_ENV_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"));
         String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody);
         String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
 
@@ -393,6 +443,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private void runCustomPortStart(int port) {
         if (commandInFlight) {
             Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isBatteryRequirementBlocking()) {
+            currentStageView.setText(getString(R.string.permission_requirement_state_required));
+            Toast.makeText(this, R.string.permission_battery_required_toast, Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -487,6 +543,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             && maintenanceSession.getTerminalSession() != null
             && maintenanceSession.getTerminalSession().isRunning();
         String stageOverview = getStageOverviewText();
+        String permissionOverview = getPermissionOverviewText();
 
         if (commandInFlight) {
             statusHeadlineView.setText(R.string.status_running_title);
@@ -507,12 +564,14 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         body.append("OpenCode 端点：").append(getOpenCodeStatusText()).append('\n');
         body.append(getString(R.string.default_port_label, getDefaultOpenCodePort())).append('\n');
         body.append(getString(R.string.default_browser_label, getOpenCodeUrl())).append('\n');
+        body.append(permissionOverview).append('\n');
         body.append("产品文档：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/product-docs").append('\n');
         body.append("工作区：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/workspace").append('\n');
         body.append("阶段校验：").append(stageOverview);
         statusBodyView.setText(body.toString());
         updateCurrentStageSummary();
         updateOpenBrowserButtonState();
+        updatePermissionButtons();
     }
 
     private String getOpenCodeStatusText() {
@@ -520,6 +579,159 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             return "检测中";
         }
         return opencodeReachable ? "可访问" : "不可访问";
+    }
+
+    private String getPermissionOverviewText() {
+        int enabledCount = 0;
+        if (isBatteryOptimizationExempt()) enabledCount++;
+        if (isOverlayPermissionGranted()) enabledCount++;
+        if (isStoragePermissionGranted()) enabledCount++;
+        return getString(R.string.permission_overview_label, enabledCount)
+            + "；"
+            + getString(isBatteryRequirementEnabled()
+                ? R.string.permission_requirement_state_required
+                : R.string.permission_requirement_state_disabled);
+    }
+
+    private void updatePermissionButtons() {
+        applyPermissionButtonState(
+            permissionBatteryButton,
+            isBatteryOptimizationExempt(),
+            getString(R.string.button_permission_battery),
+            getString(R.string.permission_badge_required),
+            getString(R.string.permission_detail_battery_complete),
+            getString(R.string.permission_detail_battery_ready)
+        );
+        applyPermissionButtonState(
+            permissionOverlayButton,
+            isOverlayPermissionGranted(),
+            getString(R.string.button_permission_overlay),
+            getString(R.string.permission_badge_optional),
+            getString(R.string.permission_detail_overlay_complete),
+            getString(R.string.permission_detail_overlay_ready)
+        );
+        applyPermissionButtonState(
+            permissionStorageButton,
+            isStoragePermissionGranted(),
+            getString(R.string.button_permission_storage),
+            getString(R.string.permission_badge_optional),
+            getString(R.string.permission_detail_storage_complete),
+            getString(R.string.permission_detail_storage_ready)
+        );
+
+        if (disableBatteryRequirementSwitch != null) {
+            boolean disableRequirement = !isBatteryRequirementEnabled();
+            disableBatteryRequirementSwitch.setChecked(disableRequirement);
+            disableBatteryRequirementSwitch.setEnabled(!commandInFlight);
+            disableBatteryRequirementSwitch.setAlpha(disableBatteryRequirementSwitch.isEnabled() ? 1.0f : 0.78f);
+        }
+        if (permissionRequirementHintView != null) {
+            permissionRequirementHintView.setText(isBatteryRequirementEnabled()
+                ? R.string.permission_requirement_hint
+                : R.string.permission_requirement_state_disabled);
+        }
+    }
+
+    private void applyPermissionButtonState(Button button, boolean granted, String label, String tag, String grantedDetail, String missingDetail) {
+        if (button == null) return;
+
+        int backgroundColor = ContextCompat.getColor(this, granted ? R.color.stageComplete : R.color.stageReady);
+        int textColor = ContextCompat.getColor(this, granted ? R.color.stageOnDark : R.color.stageReadyText);
+        button.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
+        button.setTextColor(textColor);
+        button.setEnabled(!commandInFlight);
+        button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
+        button.setText(
+            (granted ? getString(R.string.permission_badge_enabled) : getString(R.string.permission_badge_open))
+                + " · " + label + " · " + tag + "\n"
+                + (granted ? grantedDetail : missingDetail)
+        );
+    }
+
+    private boolean isBatteryRequirementEnabled() {
+        return !maintenancePreferences.getBoolean(PREF_DISABLE_BATTERY_REQUIREMENT, false);
+    }
+
+    private boolean isBatteryRequirementBlocking() {
+        return isBatteryRequirementEnabled() && !isBatteryOptimizationExempt();
+    }
+
+    private boolean isBatteryOptimizationExempt() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        return powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private boolean isOverlayPermissionGranted() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        return Settings.canDrawOverlays(this);
+    }
+
+    private boolean isStoragePermissionGranted() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Toast.makeText(this, getString(R.string.permission_detail_battery_complete), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception primaryError) {
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                Toast.makeText(this, R.string.permission_open_battery_fallback_hint, Toast.LENGTH_LONG).show();
+            } catch (Exception fallbackError) {
+                Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open battery optimization settings", fallbackError);
+                Toast.makeText(this, R.string.permission_open_battery_failed, Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void openOverlayPermissionSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Toast.makeText(this, getString(R.string.permission_detail_overlay_complete), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open overlay settings", e);
+            Toast.makeText(this, R.string.permission_open_overlay_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openStoragePermissionSettings() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                    return;
+                } catch (Exception ignored) {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                    return;
+                }
+            }
+
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open storage settings", e);
+            Toast.makeText(this, R.string.permission_open_storage_failed, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private String getStageOverviewText() {
@@ -660,6 +872,9 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void applyStagePresentations() {
+        updatePermissionButtons();
+        boolean batteryRequirementBlocking = isBatteryRequirementBlocking();
+
         if (configureDefaultPortButton != null) {
             configureDefaultPortButton.setText(getString(R.string.button_configure_default_port_with_value, getDefaultOpenCodePort()));
             configureDefaultPortButton.setEnabled(!commandInFlight);
@@ -674,12 +889,15 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             button.setText(presentation.buttonText(this, stageAction));
             button.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this, presentation.backgroundColorRes)));
             button.setTextColor(ContextCompat.getColor(this, presentation.textColorRes));
-            button.setEnabled(!commandInFlight && presentation.state != StageUiState.CHECKING && presentation.state != StageUiState.BLOCKED);
+            button.setEnabled(!commandInFlight
+                && !batteryRequirementBlocking
+                && presentation.state != StageUiState.CHECKING
+                && presentation.state != StageUiState.BLOCKED);
             button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
         }
 
         if (customPortButton != null) {
-            customPortButton.setEnabled(!commandInFlight);
+            customPortButton.setEnabled(!commandInFlight && !batteryRequirementBlocking);
             customPortButton.setAlpha(customPortButton.isEnabled() ? 1.0f : 0.78f);
         }
     }
@@ -690,17 +908,21 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         boolean prepareComplete = isPrepareStageComplete();
         boolean termuxPackagesComplete = isTermuxPackagesStageComplete();
         boolean ubuntuInstalled = termuxPackagesComplete && isUbuntuInstalled();
-        boolean ubuntuPackagesComplete = ubuntuInstalled && isUbuntuPackagesStageComplete();
-        boolean openCodeInstalled = ubuntuInstalled && isOpenCodeInstalled();
-        boolean openCodeRunning = openCodeInstalled && isOpenCodeWebReachable();
+        boolean officialDocsSynced = ubuntuInstalled && isOfficialDocsSynced();
+        boolean ubuntuPackagesComplete = officialDocsSynced && isUbuntuPackagesStageComplete();
+        boolean openCodeInstalled = ubuntuPackagesComplete && isOpenCodeInstalled();
+        boolean systemEnvSkillInstalled = openCodeInstalled && isSystemEnvSkillInstalled();
+        boolean openCodeRunning = systemEnvSkillInstalled && isOpenCodeWebReachable();
 
         snapshot.opencodeReachable = openCodeRunning;
 
         Integer prepareExitCode = readLastExitCode(StageAction.PREPARE);
         Integer termuxPackagesExitCode = readLastExitCode(StageAction.TERMUX_PACKAGES);
         Integer installUbuntuExitCode = readLastExitCode(StageAction.INSTALL_UBUNTU);
+        Integer syncOfficialDocsExitCode = readLastExitCode(StageAction.SYNC_OFFICIAL_DOCS);
         Integer ubuntuPackagesExitCode = readLastExitCode(StageAction.UBUNTU_PACKAGES);
         Integer installOpenCodeExitCode = readLastExitCode(StageAction.INSTALL_OPENCODE);
+        Integer installSystemEnvSkillExitCode = readLastExitCode(StageAction.INSTALL_SYSTEM_ENV_SKILL);
         Integer startExitCode = readLastExitCode(StageAction.START);
 
         snapshot.presentations.put(
@@ -733,10 +955,21 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         snapshot.presentations.put(
+            StageAction.SYNC_OFFICIAL_DOCS,
+            officialDocsSynced
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_sync_official_docs_complete))
+                : (!ubuntuInstalled
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_sync_official_docs_blocked))
+                    : failedOrReady(syncOfficialDocsExitCode,
+                        getString(R.string.stage_detail_sync_official_docs_failed),
+                        getString(R.string.stage_detail_sync_official_docs_ready)))
+        );
+
+        snapshot.presentations.put(
             StageAction.UBUNTU_PACKAGES,
             ubuntuPackagesComplete
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_ubuntu_packages_complete))
-                : (!ubuntuInstalled
+                : (!officialDocsSynced
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_ubuntu_packages_blocked))
                     : failedOrReady(ubuntuPackagesExitCode,
                         getString(R.string.stage_detail_ubuntu_packages_failed),
@@ -755,10 +988,21 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         snapshot.presentations.put(
+            StageAction.INSTALL_SYSTEM_ENV_SKILL,
+            systemEnvSkillInstalled
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_install_system_env_skill_complete))
+                : (!openCodeInstalled
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_system_env_skill_blocked))
+                    : failedOrReady(installSystemEnvSkillExitCode,
+                        getString(R.string.stage_detail_install_system_env_skill_failed),
+                        getString(R.string.stage_detail_install_system_env_skill_ready)))
+        );
+
+        snapshot.presentations.put(
             StageAction.START,
             openCodeRunning
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_start_complete))
-                : (!openCodeInstalled
+                : (!systemEnvSkillInstalled
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_start_blocked))
                     : failedOrReady(startExitCode,
                         getString(R.string.stage_detail_start_failed),
@@ -767,7 +1011,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
         snapshot.presentations.put(
             StageAction.RESTART,
-            !openCodeInstalled
+            !systemEnvSkillInstalled
                 ? StagePresentation.blocked(this, getString(R.string.stage_detail_restart_blocked))
                 : (openCodeRunning
                     ? StagePresentation.ready(this, getString(R.string.stage_detail_restart_ready_running))
@@ -835,9 +1079,26 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         ).isSuccess();
     }
 
+    private boolean isOfficialDocsSynced() {
+        File officialDocsDir = new File(TermuxConstants.TERMUX_HOME_DIR_PATH, "product-docs/official");
+        File agentNotesDir = new File(TermuxConstants.TERMUX_HOME_DIR_PATH, "product-docs/agent-notes");
+        return officialDocsDir.isDirectory()
+            && agentNotesDir.isDirectory()
+            && new File(officialDocsDir, "START_HERE.md").isFile()
+            && new File(officialDocsDir, "AGENT_GUIDE.md").isFile()
+            && new File(officialDocsDir, "PATHS_AND_PORTS.md").isFile()
+            && new File(officialDocsDir, "ENV_SKILL.md").isFile();
+    }
+
     private boolean isOpenCodeInstalled() {
         return runTermuxCommand(
             "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$PATH\"; (command -v opencode >/dev/null 2>&1 || test -x \"$HOME/.opencode/bin/opencode\") && test -f \"$HOME/product-links/docs-path.txt\" && test -f \"$HOME/product-links/workspace-path.txt\"'"
+        ).isSuccess();
+    }
+
+    private boolean isSystemEnvSkillInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'test -f \"$HOME/.config/opencode/skills/system-environment-description/SKILL.md\"'"
         ).isSuccess();
     }
 
@@ -971,8 +1232,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private String loadAsset(String assetName) throws IOException {
+        return loadAssetText("maintainer/" + assetName);
+    }
+
+    private String loadAssetText(String assetPath) throws IOException {
         StringBuilder builder = new StringBuilder();
-        try (InputStream inputStream = getAssets().open("maintainer/" + assetName);
+        try (InputStream inputStream = getAssets().open(assetPath);
              BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -980,6 +1245,53 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             }
         }
         return builder.toString();
+    }
+
+    private String buildBundledAssetWriteSnippet(String assetPrefix, String targetVar) throws IOException {
+        List<String> assetPaths = new ArrayList<>();
+        collectAssetPaths(assetPrefix, assetPrefix, assetPaths);
+        assetPaths.sort(String::compareTo);
+
+        StringBuilder builder = new StringBuilder();
+        int index = 0;
+        for (String assetPath : assetPaths) {
+            String relativePath = assetPath.substring(assetPrefix.length() + 1);
+            int slashIndex = relativePath.lastIndexOf('/');
+            if (slashIndex >= 0) {
+                builder.append("mkdir -p \"${").append(targetVar).append("}/")
+                    .append(relativePath.substring(0, slashIndex)).append("\"\n");
+            }
+            String delimiter = "__OPENHOUSE_ASSET_" + index++ + "__";
+            builder.append("cat > \"${").append(targetVar).append("}/").append(relativePath)
+                .append("\" <<'").append(delimiter).append("'\n");
+            builder.append(loadAssetText(assetPath));
+            if (!builder.toString().endsWith("\n")) {
+                builder.append('\n');
+            }
+            builder.append(delimiter).append('\n');
+        }
+        return builder.toString();
+    }
+
+    private void collectAssetPaths(String rootPrefix, String currentPrefix, List<String> collector) throws IOException {
+        String[] children = getAssets().list(currentPrefix);
+        if (children == null || children.length == 0) {
+            if (!currentPrefix.equals(rootPrefix)) {
+                collector.add(currentPrefix);
+            }
+            return;
+        }
+
+        Arrays.sort(children);
+        for (String child : children) {
+            String next = currentPrefix + "/" + child;
+            String[] nested = getAssets().list(next);
+            if (nested == null || nested.length == 0) {
+                collector.add(next);
+            } else {
+                collectAssetPaths(rootPrefix, next, collector);
+            }
+        }
     }
 
     private static String shellQuote(String value) {
@@ -1195,8 +1507,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         PREPARE("prepare", "prepare-product.sh"),
         TERMUX_PACKAGES("termux_packages", "update-termux-packages.sh"),
         INSTALL_UBUNTU("install_ubuntu", "install-ubuntu.sh"),
+        SYNC_OFFICIAL_DOCS("sync_official_docs", "sync-official-docs.sh"),
         UBUNTU_PACKAGES("ubuntu_packages", "update-ubuntu-packages.sh"),
         INSTALL_OPENCODE("install_opencode", "install-opencode.sh"),
+        INSTALL_SYSTEM_ENV_SKILL("install_system_env_skill", "install-system-environment-skill.sh"),
         START("start", "start-opencode.sh"),
         RESTART("restart", "restart-opencode.sh");
 
@@ -1216,10 +1530,14 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     return activity.getString(R.string.button_termux_packages);
                 case INSTALL_UBUNTU:
                     return activity.getString(R.string.button_install_ubuntu);
+                case SYNC_OFFICIAL_DOCS:
+                    return activity.getString(R.string.button_sync_official_docs);
                 case UBUNTU_PACKAGES:
                     return activity.getString(R.string.button_ubuntu_packages);
                 case INSTALL_OPENCODE:
                     return activity.getString(R.string.button_install_opencode);
+                case INSTALL_SYSTEM_ENV_SKILL:
+                    return activity.getString(R.string.button_install_system_env_skill);
                 case START:
                     return activity.getString(R.string.button_start);
                 case RESTART:
@@ -1229,7 +1547,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         }
 
         boolean shouldRefreshBeforeRun() {
-            return this == INSTALL_OPENCODE || this == START || this == RESTART;
+            return this == SYNC_OFFICIAL_DOCS
+                || this == INSTALL_OPENCODE
+                || this == INSTALL_SYSTEM_ENV_SKILL
+                || this == START
+                || this == RESTART;
         }
 
         static StageAction fromSlug(String slug) {
