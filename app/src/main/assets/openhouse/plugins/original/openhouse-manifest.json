@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "version": "2026.04.29.1",
+  "title": "OpenHouse 维护器",
+  "sourceName": "OpenHouse APK 原始插件",
+  "updatedAt": "2026-04-29",
+  "bootstrapUrl": "https://raw.githubusercontent.com/jiwuyou/openhouse-bootstrap/main/bootstrap.sh",
+  "defaultOneClickAction": "full",
+  "stageFlow": [
+    {
+      "title": "准备手机环境",
+      "description": "准备 Termux、基础包、Ubuntu 和产品路径。",
+      "stages": ["prepare", "termux_packages", "install_ubuntu", "sync_official_docs"]
+    },
+    {
+      "title": "更新 Ubuntu 依赖",
+      "description": "安装 Ubuntu 内 curl、git、证书、ripgrep、unzip 等基础工具。",
+      "stages": ["ubuntu_packages"]
+    },
+    {
+      "title": "设置启动入口",
+      "description": "打开 Termux 后直接进入 Ubuntu，放在安装 OpenCode 之前执行。",
+      "stages": ["entry_ubuntu"]
+    },
+    {
+      "title": "安装并启动 AI 工具",
+      "description": "安装 OpenCode、Codex、Claude Code，写入 Agent 技能，并启动 4096 端口。",
+      "stages": ["install_opencode", "install_codex", "install_claude_code", "install_system_env_skill", "start"]
+    }
+  ],
+  "sections": [
+    {
+      "id": "optional_ai_agents",
+      "type": "actions",
+      "title": "AI 工具补装与修复",
+      "description": "阶段一键执行会安装 Codex 和 Claude Code。这里保留单独补装、重装和修复入口。",
+      "items": [
+        {
+          "id": "install_codex",
+          "type": "button",
+          "label": "安装 Codex",
+          "description": "在 Ubuntu 内安装 OpenAI Codex CLI。",
+          "action": { "type": "bootstrap", "args": ["codex"] }
+        },
+        {
+          "id": "install_claude_code",
+          "type": "button",
+          "label": "安装 Claude Code",
+          "description": "在 Ubuntu 内安装 Anthropic Claude Code。",
+          "action": { "type": "bootstrap", "args": ["claude-code"] }
+        },
+        {
+          "id": "install_agent_skills",
+          "type": "button",
+          "label": "刷新 Agent Skills",
+          "description": "重新写入 OpenCode、Codex、Claude Code 的登录和第三方 API 配置说明。",
+          "action": { "type": "bootstrap", "args": ["skills"] }
+        }
+      ]
+    },
+    {
+      "id": "startup_entry",
+      "type": "setting",
+      "title": "启动入口设置",
+      "description": "控制打开 Termux 后默认停在 Termux，还是自动进入 Ubuntu。阶段执行会应用这个配置。",
+      "items": [
+        {
+          "id": "entry_mode",
+          "type": "single_choice",
+          "label": "打开 Termux 后",
+          "options": [
+            {
+              "label": "直接进入 Ubuntu",
+              "description": "写入启动入口配置；下次打开 Termux 自动进入 Ubuntu。",
+              "action": { "type": "bootstrap", "args": ["entry-ubuntu"] }
+            },
+            {
+              "label": "停留在 Termux",
+              "description": "写入启动入口配置；下次打开 Termux 停留在原生 Termux。",
+              "action": { "type": "bootstrap", "args": ["entry-termux"] }
+            },
+            {
+              "label": "查看当前设置",
+              "description": "显示当前启动入口模式和配置文件路径。",
+              "action": { "type": "bootstrap", "args": ["entry-status"] }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "id": "prepare",
+      "title": "准备 Termux 环境",
+      "description": "创建产品文档和工作区，安装 curl、git、proot-distro，并写入 Termux 配置。",
+      "action": { "type": "bootstrap", "args": ["prepare"] }
+    },
+    {
+      "id": "termux_packages",
+      "title": "检查 Termux 基础包",
+      "description": "确保 proot-distro、curl、证书和 git 可用。",
+      "action": { "type": "bootstrap", "args": ["prepare"] }
+    },
+    {
+      "id": "install_ubuntu",
+      "title": "安装 Ubuntu",
+      "description": "通过 proot-distro 安装 Ubuntu rootfs，可重复执行。",
+      "action": { "type": "bootstrap", "args": ["ubuntu"] }
+    },
+    {
+      "id": "sync_official_docs",
+      "title": "写入产品路径",
+      "description": "保持产品文档和工作区路径可被 Ubuntu 内 Agent 识别。",
+      "action": { "type": "bootstrap", "args": ["prepare"] }
+    },
+    {
+      "id": "ubuntu_packages",
+      "title": "更新 Ubuntu 软件包",
+      "description": "在 Ubuntu 内安装 curl、git、证书、procps、ripgrep 和 unzip。",
+      "action": { "type": "bootstrap", "args": ["ubuntu-packages"] }
+    },
+    {
+      "id": "entry_ubuntu",
+      "title": "启动后直接进入 Ubuntu",
+      "description": "写入启动入口配置；下次打开 Termux 自动进入 Ubuntu。",
+      "action": { "type": "bootstrap", "args": ["entry-ubuntu"] }
+    },
+    {
+      "id": "install_opencode",
+      "title": "安装 OpenCode",
+      "description": "安装或检查 OpenCode，并持久写入 Agent 工具 PATH。",
+      "action": { "type": "bootstrap", "args": ["opencode"] }
+    },
+    {
+      "id": "install_codex",
+      "title": "安装 Codex",
+      "description": "在 Ubuntu 内通过 npm 安装 OpenAI Codex CLI。",
+      "action": { "type": "bootstrap", "args": ["codex"] }
+    },
+    {
+      "id": "install_claude_code",
+      "title": "安装 Claude Code",
+      "description": "在 Ubuntu 内通过 npm 安装 Anthropic Claude Code。",
+      "action": { "type": "bootstrap", "args": ["claude-code"] }
+    },
+    {
+      "id": "install_system_env_skill",
+      "title": "写入 Agent 技能",
+      "description": "写入系统环境说明，以及 OpenCode、Codex、Claude Code 的安装登录配置说明。",
+      "action": { "type": "bootstrap", "args": ["skills"] }
+    },
+    {
+      "id": "start",
+      "title": "启动 OpenCode",
+      "description": "按默认端口启动 OpenCode Web，默认绑定 127.0.0.1。",
+      "action": { "type": "bootstrap", "args": ["start"] }
+    },
+    {
+      "id": "restart",
+      "title": "重启 OpenCode",
+      "description": "重新执行启动动作，用于恢复 OpenCode Web 服务。",
+      "action": { "type": "bootstrap", "args": ["start"] }
+    }
+  ]
+}

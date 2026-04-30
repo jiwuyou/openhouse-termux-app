@@ -7,6 +7,7 @@ import com.termux.shared.termux.TermuxConstants;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,14 @@ final class MaintainerLogStore {
         }
 
         return content.substring(start);
+    }
+
+    static void writeLog(Context context, String stageSlug, String content) throws IOException {
+        File logDir = ensureLogDir(context);
+        File file = new File(logDir, sanitizeStageSlug(stageSlug) + ".log");
+        try (FileOutputStream outputStream = new FileOutputStream(file, false)) {
+            outputStream.write((content == null ? "" : content).getBytes(StandardCharsets.UTF_8));
+        }
     }
 
     static File ensureLogDir(Context context) {

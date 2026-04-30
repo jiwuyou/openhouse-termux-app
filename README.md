@@ -1,3 +1,38 @@
+# OpenHouse Termux App
+
+OpenHouse Termux App is a Termux fork that adds an OpenHouse maintenance center for bootstrapping Ubuntu, OpenCode, Codex, Claude Code, local web maintenance, dynamic online maintenance plugins, and Agent setup skills on Android.
+
+This repository is based on [`termux/termux-app`](https://github.com/termux/termux-app). It is not an official Termux release. The upstream Termux README is kept below for build, install, signing, and compatibility details.
+
+OpenHouse-specific documentation:
+
+- [OpenHouse overview](docs/OPENHOUSE.md)
+- [Open source notes](docs/OPENHOUSE_OPEN_SOURCE.md)
+- [Security notes](SECURITY_OPENHOUSE.md)
+
+## Current OpenHouse Scope
+
+- Maintenance center UI with permission gating, step-by-step mode, and one-click stage mode.
+- Dynamic maintenance manifest support from bundled, local user, or GitHub raw sources.
+- Ubuntu proot bootstrap and OpenCode installation flow.
+- Codex and Claude Code installation stages through online maintenance scripts.
+- Local web maintenance launcher with configurable five-digit port.
+- OpenCode skills documenting official login and third-party API configuration examples.
+
+## Quick Build
+
+```bash
+./gradlew :app:assembleDebug -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
+```
+
+Debug APK output:
+
+```text
+app/build/outputs/apk/debug/termux-app_apt-android-7-debug_universal.apk
+```
+
+## Upstream Termux README
+
 # Termux application
 
 [![Build status](https://github.com/termux/termux-app/workflows/Build/badge.svg)](https://github.com/termux/termux-app/actions)

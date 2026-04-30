@@ -109,6 +109,12 @@
             android:theme="@style/Theme.TermuxMaintenance.DayNight.NoActionBar" />
 
         <activity
+            android:name=".app.activities.OpenHouseAgreementActivity"
+            android:exported="false"
+            android:label="@string/agreement_screen_title"
+            android:theme="@style/Theme.TermuxMaintenance.DayNight.NoActionBar" />
+
+        <activity
             android:name=".app.activities.MaintenanceLogActivity"
             android:exported="false"
             android:label="@string/full_log_title"

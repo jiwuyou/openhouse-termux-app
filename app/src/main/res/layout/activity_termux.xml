@@ -102,7 +102,7 @@
             android:background="@color/black"
             android:layout_alignParentBottom="true" />
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
             android:id="@+id/opencode_quick_launch_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -111,10 +111,13 @@
             android:layout_marginEnd="18dp"
             android:layout_marginBottom="14dp"
             android:contentDescription="@string/action_launch_opencode_default"
+            android:text="@string/action_launch_opencode_short"
+            android:textColor="@color/stageReadyText"
             app:backgroundTint="@color/stageReady"
-            app:srcCompat="@drawable/ic_opencode_launch" />
+            app:icon="@drawable/ic_opencode_launch"
+            app:iconTint="@color/stageReadyText" />
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
             android:id="@+id/maintenance_center_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -123,8 +126,30 @@
             android:layout_marginEnd="18dp"
             android:layout_marginBottom="18dp"
             android:contentDescription="@string/action_open_maintenance_center"
+            android:text="@string/action_open_maintenance_center_short"
+            android:textColor="@color/stageOnDark"
             app:backgroundTint="@color/accent"
-            app:srcCompat="@drawable/ic_maintainer" />
+            app:icon="@drawable/ic_maintainer"
+            app:iconTint="@color/stageOnDark" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/quick_buttons_visibility_handle"
+            android:layout_width="64dp"
+            android:layout_height="48dp"
+            android:layout_alignParentEnd="true"
+            android:layout_above="@id/opencode_quick_launch_button"
+            android:layout_marginEnd="18dp"
+            android:layout_marginBottom="14dp"
+            android:alpha="0.62"
+            android:contentDescription="@string/action_toggle_quick_buttons_visibility"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="@string/action_toggle_quick_buttons_visibility_short"
+            android:textColor="@color/stageOnDark"
+            app:backgroundTint="@color/stageRunning"
+            app:cornerRadius="24dp" />
 
     </RelativeLayout>
 

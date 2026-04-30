@@ -14,6 +14,9 @@ release/
 # Local configuration file (sdk path, etc)
 local.properties
 
+# OpenHouse local preview output
+openhouse-preview/
+
 # Gradle generated files
 .gradle/
 

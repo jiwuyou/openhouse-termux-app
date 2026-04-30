@@ -13,9 +13,11 @@ import android.os.PowerManager;
 import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.provider.Settings;
@@ -28,6 +30,7 @@ import androidx.core.widget.NestedScrollView;
 
 import com.termux.R;
 import com.termux.app.OpenCodeCdpBridge;
+import com.termux.app.OpenCodeDownloadSourceSettings;
 import com.termux.app.OpenCodeSettings;
 import com.termux.shared.activity.ActivityUtils;
 import com.termux.shared.logger.Logger;
@@ -45,20 +48,30 @@ import com.termux.view.TerminalView;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class MaintenanceCenterActivity extends AppCompatActivity {
 
@@ -67,8 +80,38 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private static final Pattern DONE_PATTERN = Pattern.compile("__TERMUX_MAINT_DONE__:([a-zA-Z0-9_-]+):(\\d+)");
     private static final String OFFICIAL_DOCS_ASSET_DIR = "openhouse/docs-public";
     private static final String SYSTEM_ENV_SKILL_ASSET_DIR = "openhouse/opencode-skills/system-environment-description";
+    private static final String OPENCODE_AGENT_INSTALL_SKILL_ASSET_DIR = "openhouse/opencode-skills/install-ai-agents";
+    private static final String BUNDLED_MAINTENANCE_PLUGIN_ASSET = "openhouse/plugins/original/openhouse-manifest.json";
     private static final String PREFS_MAINTENANCE = "maintenance_center";
     private static final String PREF_DISABLE_BATTERY_REQUIREMENT = "disable_battery_requirement";
+    private static final String PREF_MAINTENANCE_PLUGIN_MODE = "maintenance_plugin_mode";
+    private static final String PREF_MAINTENANCE_SOURCE_URL = "maintenance_source_url";
+    private static final String PREF_USER_PLUGIN_PATH = "maintenance_user_plugin_path";
+    private static final String PREF_LOCAL_MAINTENANCE_WEB_PORT = "local_maintenance_web_port";
+    private static final String DEFAULT_MAINTENANCE_MANIFEST_URL = "https://raw.githubusercontent.com/jiwuyou/openhouse-bootstrap/main/openhouse-manifest.json";
+    private static final String DEFAULT_BOOTSTRAP_URL = "https://raw.githubusercontent.com/jiwuyou/openhouse-bootstrap/main/bootstrap.sh";
+    private static final String DEFAULT_USER_PLUGIN_PATH = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.openhouse/plugins/user/openhouse-manifest.json";
+    private static final int DEFAULT_LOCAL_MAINTENANCE_WEB_PORT = 38423;
+    private static final int MIN_LOCAL_MAINTENANCE_WEB_PORT = 10000;
+    private static final int MAX_LOCAL_MAINTENANCE_WEB_PORT = 65535;
+    private static final int MANIFEST_CONNECT_TIMEOUT_MS = 5000;
+    private static final int MANIFEST_READ_TIMEOUT_MS = 9000;
+    private static final String PROBE_OPENCODE_SOURCE_SLUG = "probe_opencode_source";
+    private static final int SOURCE_PROBE_CONNECT_TIMEOUT_MS = 3000;
+    private static final int SOURCE_PROBE_READ_TIMEOUT_MS = 8000;
+    private static final StageAction[] ONE_CLICK_STAGE_SEQUENCE = new StageAction[] {
+        StageAction.PREPARE,
+        StageAction.TERMUX_PACKAGES,
+        StageAction.INSTALL_UBUNTU,
+        StageAction.SYNC_OFFICIAL_DOCS,
+        StageAction.UBUNTU_PACKAGES,
+        StageAction.CONFIGURE_ENTRY_UBUNTU,
+        StageAction.INSTALL_OPENCODE,
+        StageAction.INSTALL_CODEX,
+        StageAction.INSTALL_CLAUDE_CODE,
+        StageAction.INSTALL_SYSTEM_ENV_SKILL,
+        StageAction.START
+    };
 
     private TextView statusHeadlineView;
     private TextView statusBodyView;
@@ -77,14 +120,39 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private TextView helpBodyView;
     private TextView terminalStatusView;
     private TextView permissionRequirementHintView;
+    private TextView downloadSourceSummaryView;
+    private TextView maintenanceSourceSummaryView;
+    private TextView localMaintenanceWebSummaryView;
+    private LinearLayout dynamicPluginSectionsContainer;
     private NestedScrollView liveLogScrollView;
-    private Button permissionBatteryButton;
-    private Button permissionOverlayButton;
-    private Button permissionStorageButton;
+    private SwitchCompat permissionBatteryButton;
+    private SwitchCompat permissionOverlayButton;
+    private SwitchCompat permissionStorageButton;
     private Button configureDefaultPortButton;
+    private Button configureDownloadSourceButton;
+    private Button probeDownloadSourceButton;
+    private Button configureMaintenanceSourceButton;
+    private Button refreshMaintenanceSourceButton;
+    private Button stageManualModeButton;
+    private Button stageOneClickModeButton;
+    private Button startOneClickStagesButton;
     private Button customPortButton;
+    private Button openMaintenanceWebButton;
+    private Button stopMaintenanceWebButton;
+    private Button configureMaintenanceWebPortButton;
     private Button viewFullLogButton;
     private Button openBrowserButton;
+    private TextView oneClickStageSummaryView;
+    private TextView oneClickPrepareItemView;
+    private TextView oneClickUbuntuPackagesItemView;
+    private TextView oneClickOpenCodeItemView;
+    private TextView oneClickCodexItemView;
+    private TextView oneClickClaudeCodeItemView;
+    private TextView oneClickSkillItemView;
+    private TextView oneClickStartItemView;
+    private LinearLayout oneClickStageItemsContainer;
+    private View oneClickStagePanel;
+    private View stageActionsPanel;
     private FrameLayout terminalContainer;
     private TerminalView terminalView;
     private SwitchCompat disableBatteryRequirementSwitch;
@@ -100,6 +168,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     private Boolean opencodeReachable;
     private boolean stageStatusCheckInFlight;
     private boolean stageStatusCheckQueued;
+    private boolean oneClickStageMode;
+    private boolean oneClickStagesInFlight;
+    private boolean openMaintenanceWebAfterStage;
+    private MaintenanceManifest activeManifest;
+    private String activeManifestError;
     private SharedPreferences maintenancePreferences;
 
     private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
@@ -122,14 +195,39 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         helpBodyView = findViewById(R.id.helpBody);
         terminalStatusView = findViewById(R.id.embeddedTerminalStatus);
         permissionRequirementHintView = findViewById(R.id.permissionRequirementHint);
+        downloadSourceSummaryView = findViewById(R.id.downloadSourceSummary);
+        maintenanceSourceSummaryView = findViewById(R.id.maintenanceSourceSummary);
+        localMaintenanceWebSummaryView = findViewById(R.id.localMaintenanceWebSummary);
+        dynamicPluginSectionsContainer = findViewById(R.id.dynamicPluginSections);
         permissionBatteryButton = findViewById(R.id.buttonPermissionBattery);
         permissionOverlayButton = findViewById(R.id.buttonPermissionOverlay);
         permissionStorageButton = findViewById(R.id.buttonPermissionStorage);
         disableBatteryRequirementSwitch = findViewById(R.id.switchDisableBatteryRequirement);
         configureDefaultPortButton = findViewById(R.id.buttonConfigureDefaultPort);
+        configureDownloadSourceButton = findViewById(R.id.buttonConfigureDownloadSource);
+        probeDownloadSourceButton = findViewById(R.id.buttonProbeDownloadSource);
+        configureMaintenanceSourceButton = findViewById(R.id.buttonConfigureMaintenanceSource);
+        refreshMaintenanceSourceButton = findViewById(R.id.buttonRefreshMaintenanceSource);
+        stageManualModeButton = findViewById(R.id.buttonStageManualMode);
+        stageOneClickModeButton = findViewById(R.id.buttonStageOneClickMode);
+        startOneClickStagesButton = findViewById(R.id.buttonStartOneClickStages);
         customPortButton = findViewById(R.id.buttonStartCustomPort);
+        openMaintenanceWebButton = findViewById(R.id.buttonOpenMaintenanceWeb);
+        stopMaintenanceWebButton = findViewById(R.id.buttonStopMaintenanceWeb);
+        configureMaintenanceWebPortButton = findViewById(R.id.buttonConfigureMaintenanceWebPort);
         viewFullLogButton = findViewById(R.id.buttonViewFullLog);
         openBrowserButton = findViewById(R.id.buttonOpenBrowser);
+        oneClickStageSummaryView = findViewById(R.id.oneClickStageSummary);
+        oneClickPrepareItemView = findViewById(R.id.oneClickPrepareItem);
+        oneClickUbuntuPackagesItemView = findViewById(R.id.oneClickUbuntuPackagesItem);
+        oneClickOpenCodeItemView = findViewById(R.id.oneClickOpenCodeItem);
+        oneClickCodexItemView = findViewById(R.id.oneClickCodexItem);
+        oneClickClaudeCodeItemView = findViewById(R.id.oneClickClaudeCodeItem);
+        oneClickSkillItemView = findViewById(R.id.oneClickSkillItem);
+        oneClickStartItemView = findViewById(R.id.oneClickStartItem);
+        oneClickStageItemsContainer = findViewById(R.id.oneClickStageItemsContainer);
+        oneClickStagePanel = findViewById(R.id.oneClickStagePanel);
+        stageActionsPanel = findViewById(R.id.stageActionsPanel);
         terminalContainer = findViewById(R.id.maintenanceTerminalContainer);
         maintenancePreferences = getSharedPreferences(PREFS_MAINTENANCE, MODE_PRIVATE);
 
@@ -138,11 +236,18 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         liveLogView.setText(R.string.result_placeholder);
 
         bindPermissionButtons();
+        bindExecutionModeButtons();
         bindStageButtons();
         initializeStagePresentations();
         configureDefaultPortButton.setOnClickListener(v -> showDefaultPortDialog());
+        configureDownloadSourceButton.setOnClickListener(v -> showDownloadSourceModeDialog());
+        probeDownloadSourceButton.setOnClickListener(v -> runOpenCodeSourceProbe(false));
+        configureMaintenanceSourceButton.setOnClickListener(v -> showMaintenanceSourceDialog());
+        refreshMaintenanceSourceButton.setOnClickListener(v -> refreshMaintenanceManifest(true));
         viewFullLogButton.setOnClickListener(v -> openFullLog());
         updateLogButtonState();
+        updateMaintenanceSourceCard();
+        refreshMaintenanceManifest(false);
         refreshStatus();
         requestStageStatusRefresh();
     }
@@ -177,11 +282,16 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         bindStageButton(StageAction.SYNC_OFFICIAL_DOCS, R.id.buttonSyncOfficialDocs);
         bindStageButton(StageAction.UBUNTU_PACKAGES, R.id.buttonUbuntuPackages);
         bindStageButton(StageAction.INSTALL_OPENCODE, R.id.buttonInstallOpenCode);
+        bindStageButton(StageAction.INSTALL_CODEX, R.id.buttonInstallCodex);
+        bindStageButton(StageAction.INSTALL_CLAUDE_CODE, R.id.buttonInstallClaudeCode);
         bindStageButton(StageAction.INSTALL_SYSTEM_ENV_SKILL, R.id.buttonInstallSystemEnvSkill);
         bindStageButton(StageAction.START, R.id.buttonStart);
         bindStageButton(StageAction.RESTART, R.id.buttonRestart);
         customPortButton.setOnClickListener(v -> showCustomPortDialog());
         openBrowserButton.setOnClickListener(v -> openBrowser());
+        openMaintenanceWebButton.setOnClickListener(v -> startLocalMaintenanceWeb());
+        stopMaintenanceWebButton.setOnClickListener(v -> stopLocalMaintenanceWeb());
+        configureMaintenanceWebPortButton.setOnClickListener(v -> showLocalMaintenanceWebPortDialog());
     }
 
     private void bindPermissionButtons() {
@@ -194,6 +304,953 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             refreshStatus();
             applyStagePresentations();
         });
+    }
+
+    private void showMaintenanceSourceDialog() {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] sourceChoices = new String[] {
+            getString(R.string.plugin_source_choice_bundled),
+            getString(R.string.plugin_source_choice_user),
+            getString(R.string.plugin_source_choice_online)
+        };
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.maintenance_source_dialog_title)
+            .setItems(sourceChoices, (dialog, which) -> {
+                if (which == 0) {
+                    setPluginSourceMode(PluginSourceMode.BUNDLED);
+                    refreshMaintenanceManifest(true);
+                } else if (which == 1) {
+                    showUserPluginPathDialog();
+                } else {
+                    showOnlinePluginUrlDialog();
+                }
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    private void showOnlinePluginUrlDialog() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        input.setSingleLine(false);
+        input.setMinLines(2);
+        input.setHint(getString(R.string.maintenance_source_dialog_hint));
+        input.setText(getOnlinePluginUrl());
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.plugin_source_online_title)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(R.string.maintenance_source_reset, (dialog, which) -> {
+                maintenancePreferences.edit()
+                    .putString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.ONLINE.prefValue)
+                    .remove(PREF_MAINTENANCE_SOURCE_URL)
+                    .apply();
+                refreshMaintenanceManifest(true);
+            })
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                if (!isValidManifestUrl(value)) {
+                    Toast.makeText(this, R.string.maintenance_source_invalid, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                maintenancePreferences.edit()
+                    .putString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.ONLINE.prefValue)
+                    .putString(PREF_MAINTENANCE_SOURCE_URL, value)
+                    .apply();
+                Toast.makeText(this, R.string.maintenance_source_saved, Toast.LENGTH_SHORT).show();
+                refreshMaintenanceManifest(true);
+            })
+            .show();
+    }
+
+    private void showUserPluginPathDialog() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        input.setSingleLine(false);
+        input.setMinLines(2);
+        input.setHint(DEFAULT_USER_PLUGIN_PATH);
+        input.setText(getUserPluginPath());
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.plugin_source_user_title)
+            .setMessage(R.string.plugin_source_user_message)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(R.string.plugin_source_use_default_path, (dialog, which) -> {
+                maintenancePreferences.edit()
+                    .putString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.USER.prefValue)
+                    .remove(PREF_USER_PLUGIN_PATH)
+                    .apply();
+                refreshMaintenanceManifest(true);
+            })
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                if (value.isEmpty()) {
+                    Toast.makeText(this, R.string.plugin_source_user_path_invalid, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                maintenancePreferences.edit()
+                    .putString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.USER.prefValue)
+                    .putString(PREF_USER_PLUGIN_PATH, value)
+                    .apply();
+                Toast.makeText(this, R.string.maintenance_source_saved, Toast.LENGTH_SHORT).show();
+                refreshMaintenanceManifest(true);
+            })
+            .show();
+    }
+
+    private void setPluginSourceMode(PluginSourceMode mode) {
+        maintenancePreferences.edit().putString(PREF_MAINTENANCE_PLUGIN_MODE, mode.prefValue).apply();
+        Toast.makeText(this, R.string.maintenance_source_saved, Toast.LENGTH_SHORT).show();
+    }
+
+    private PluginSourceMode getPluginSourceMode() {
+        return PluginSourceMode.fromPrefValue(
+            maintenancePreferences.getString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.ONLINE.prefValue)
+        );
+    }
+
+    private String getOnlinePluginUrl() {
+        return maintenancePreferences.getString(PREF_MAINTENANCE_SOURCE_URL, DEFAULT_MAINTENANCE_MANIFEST_URL);
+    }
+
+    private String getUserPluginPath() {
+        return maintenancePreferences.getString(PREF_USER_PLUGIN_PATH, DEFAULT_USER_PLUGIN_PATH);
+    }
+
+    private boolean isValidManifestUrl(String value) {
+        return isHttpUrl(value);
+    }
+
+    private static boolean isHttpUrl(String value) {
+        if (value == null || value.isEmpty()) return false;
+        try {
+            URL url = new URL(value);
+            return "https".equalsIgnoreCase(url.getProtocol())
+                || "http".equalsIgnoreCase(url.getProtocol());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void refreshMaintenanceManifest(boolean userInitiated) {
+        final PluginSourceMode pluginSourceMode = getPluginSourceMode();
+        if (pluginSourceMode == PluginSourceMode.ONLINE && !isValidManifestUrl(getOnlinePluginUrl())) {
+            activeManifest = null;
+            activeManifestError = getString(R.string.maintenance_source_invalid);
+            updateMaintenanceSourceCard();
+            renderDynamicPluginSections();
+            return;
+        }
+
+        if (refreshMaintenanceSourceButton != null) {
+            refreshMaintenanceSourceButton.setEnabled(false);
+            refreshMaintenanceSourceButton.setAlpha(0.78f);
+        }
+
+        backgroundExecutor.execute(() -> {
+            MaintenanceManifest manifest = null;
+            String error = null;
+            try {
+                manifest = loadMaintenanceManifest(pluginSourceMode);
+            } catch (Exception e) {
+                error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                Logger.logStackTraceWithMessage(LOG_TAG, "Failed to refresh maintenance manifest", e);
+            }
+
+            MaintenanceManifest finalManifest = manifest;
+            String finalError = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                activeManifest = finalManifest;
+                activeManifestError = finalError;
+                updateMaintenanceSourceCard();
+                renderDynamicPluginSections();
+                applyStagePresentations();
+                updateExecutionModeViews();
+                if (userInitiated) {
+                    Toast.makeText(this,
+                        finalManifest != null ? R.string.maintenance_source_refresh_ok : R.string.maintenance_source_refresh_failed,
+                        Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
+    }
+
+    private MaintenanceManifest loadMaintenanceManifest(PluginSourceMode mode) throws IOException, JSONException {
+        if (mode == PluginSourceMode.BUNDLED) {
+            String assetSource = "asset://" + BUNDLED_MAINTENANCE_PLUGIN_ASSET;
+            return MaintenanceManifest.fromJson(assetSource, loadAssetText(BUNDLED_MAINTENANCE_PLUGIN_ASSET));
+        }
+        if (mode == PluginSourceMode.USER) {
+            File userPluginFile = ensureUserPluginFile();
+            return MaintenanceManifest.fromJson(userPluginFile.getAbsolutePath(), readTextFile(userPluginFile));
+        }
+        return fetchMaintenanceManifest(getOnlinePluginUrl());
+    }
+
+    private File ensureUserPluginFile() throws IOException {
+        File userPluginFile = new File(getUserPluginPath());
+        if (userPluginFile.isFile()) {
+            return userPluginFile;
+        }
+        File parentFile = userPluginFile.getParentFile();
+        if (parentFile != null && !parentFile.isDirectory() && !parentFile.mkdirs()) {
+            throw new IOException("failed to create plugin directory: " + parentFile.getAbsolutePath());
+        }
+        try (FileOutputStream outputStream = new FileOutputStream(userPluginFile)) {
+            outputStream.write(loadAssetText(BUNDLED_MAINTENANCE_PLUGIN_ASSET).getBytes(StandardCharsets.UTF_8));
+        }
+        return userPluginFile;
+    }
+
+    private String readTextFile(File file) throws IOException {
+        StringBuilder builder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line).append('\n');
+                if (builder.length() > 200000) {
+                    throw new IOException("manifest too large");
+                }
+            }
+        }
+        return builder.toString();
+    }
+
+    private MaintenanceManifest fetchMaintenanceManifest(String manifestUrl) throws IOException, JSONException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(manifestUrl).openConnection();
+        connection.setConnectTimeout(MANIFEST_CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(MANIFEST_READ_TIMEOUT_MS);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("Accept", "application/json");
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode < 200 || responseCode >= 300) {
+            throw new IOException("HTTP " + responseCode);
+        }
+
+        StringBuilder builder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line).append('\n');
+                if (builder.length() > 200000) {
+                    throw new IOException("manifest too large");
+                }
+            }
+        } finally {
+            connection.disconnect();
+        }
+
+        return MaintenanceManifest.fromJson(manifestUrl, builder.toString());
+    }
+
+    private void updateMaintenanceSourceCard() {
+        if (maintenanceSourceSummaryView == null) return;
+        PluginSourceMode pluginSourceMode = getPluginSourceMode();
+        String sourceLocation = getMaintenanceSourceLocation(pluginSourceMode);
+        if (activeManifest != null) {
+            maintenanceSourceSummaryView.setText(getString(
+                R.string.maintenance_source_summary,
+                getString(pluginSourceMode.labelRes) + " · " + activeManifest.sourceName,
+                activeManifest.version,
+                sourceLocation
+            ));
+        } else if (activeManifestError != null && !activeManifestError.isEmpty()) {
+            maintenanceSourceSummaryView.setText(getString(
+                R.string.maintenance_source_summary_failed,
+                getString(pluginSourceMode.labelRes) + "\n" + sourceLocation,
+                activeManifestError
+            ));
+        } else {
+            maintenanceSourceSummaryView.setText(R.string.maintenance_source_summary_loading);
+        }
+
+        if (refreshMaintenanceSourceButton != null) {
+            refreshMaintenanceSourceButton.setEnabled(!commandInFlight);
+            refreshMaintenanceSourceButton.setAlpha(refreshMaintenanceSourceButton.isEnabled() ? 1.0f : 0.78f);
+        }
+    }
+
+    private void renderDynamicPluginSections() {
+        if (dynamicPluginSectionsContainer == null) return;
+        dynamicPluginSectionsContainer.removeAllViews();
+        if (activeManifest == null || activeManifest.dynamicSections.isEmpty()) {
+            dynamicPluginSectionsContainer.setVisibility(View.GONE);
+            return;
+        }
+
+        dynamicPluginSectionsContainer.setVisibility(View.VISIBLE);
+        for (DynamicSection section : activeManifest.dynamicSections) {
+            View sectionView = createDynamicSectionView(section);
+            if (sectionView != null) {
+                dynamicPluginSectionsContainer.addView(sectionView);
+            }
+        }
+    }
+
+    private View createDynamicSectionView(DynamicSection section) {
+        if (!"actions".equals(section.type) && !"setting".equals(section.type)) {
+            return null;
+        }
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackgroundResource(R.drawable.panel_bg);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(16));
+        LinearLayout.LayoutParams panelParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        panelParams.topMargin = dp(16);
+        panel.setLayoutParams(panelParams);
+
+        TextView titleView = new TextView(this);
+        titleView.setText(section.title);
+        titleView.setTextColor(ContextCompat.getColor(this, R.color.textPrimary));
+        titleView.setTextSize(18);
+        titleView.setTypeface(titleView.getTypeface(), android.graphics.Typeface.BOLD);
+        panel.addView(titleView);
+
+        if (!section.description.isEmpty()) {
+            TextView descriptionView = createDynamicBodyText(section.description);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            params.topMargin = dp(8);
+            descriptionView.setLayoutParams(params);
+            panel.addView(descriptionView);
+        }
+
+        for (DynamicItem item : section.items) {
+            if ("single_choice".equals(item.type)) {
+                addDynamicSingleChoice(panel, item);
+            } else {
+                addDynamicActionButton(panel, item.label, item.description, item.id, item.action);
+            }
+        }
+
+        return panel;
+    }
+
+    private TextView createDynamicBodyText(String text) {
+        TextView textView = new TextView(this);
+        textView.setText(text);
+        textView.setTextColor(ContextCompat.getColor(this, R.color.textSecondary));
+        textView.setTextSize(13);
+        textView.setLineSpacing(dp(2), 1.0f);
+        return textView;
+    }
+
+    private void addDynamicSingleChoice(LinearLayout panel, DynamicItem item) {
+        TextView labelView = createDynamicBodyText(item.label);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        labelParams.topMargin = dp(12);
+        labelView.setLayoutParams(labelParams);
+        panel.addView(labelView);
+
+        for (int i = 0; i < item.options.size(); i++) {
+            DynamicOption option = item.options.get(i);
+            String slug = sanitizeDynamicSlug(item.id + "_" + i);
+            addDynamicActionButton(panel, option.label, option.description, slug, option.action);
+        }
+    }
+
+    private void addDynamicActionButton(LinearLayout panel, String label, String description, String slug, BootstrapAction action) {
+        if (action == null) return;
+        Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setText(description == null || description.isEmpty() ? label : label + "\n" + description);
+        button.setEnabled(!commandInFlight);
+        button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
+        button.setTextColor(ContextCompat.getColor(this, R.color.stageReadyText));
+        button.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this, R.color.stageReady)));
+        button.setOnClickListener(v -> runRemoteBootstrapAction(sanitizeDynamicSlug(slug), label, action));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.topMargin = dp(10);
+        button.setLayoutParams(params);
+        panel.addView(button);
+    }
+
+    private String sanitizeDynamicSlug(String value) {
+        if (value == null || value.isEmpty()) return "dynamic_action";
+        String slug = value.replaceAll("[^a-zA-Z0-9_-]", "_");
+        return slug.isEmpty() ? "dynamic_action" : slug;
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private String getMaintenanceSourceLocation(PluginSourceMode mode) {
+        if (mode == PluginSourceMode.BUNDLED) {
+            return "asset://" + BUNDLED_MAINTENANCE_PLUGIN_ASSET;
+        }
+        if (mode == PluginSourceMode.USER) {
+            return getUserPluginPath();
+        }
+        return getOnlinePluginUrl();
+    }
+
+    private void bindExecutionModeButtons() {
+        stageManualModeButton.setOnClickListener(v -> setOneClickStageMode(false));
+        stageOneClickModeButton.setOnClickListener(v -> setOneClickStageMode(true));
+        startOneClickStagesButton.setOnClickListener(v -> {
+            if (oneClickStagesInFlight) {
+                stopOneClickStages(getString(R.string.one_click_stage_toast_stopped));
+                return;
+            }
+            startOneClickStages();
+        });
+        setOneClickStageMode(false);
+    }
+
+    private void setOneClickStageMode(boolean enabled) {
+        oneClickStageMode = enabled;
+        updateExecutionModeViews();
+    }
+
+    private void startOneClickStages() {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isBatteryRequirementBlocking()) {
+            currentStageView.setText(getString(R.string.permission_requirement_state_required));
+            Toast.makeText(this, R.string.permission_battery_required_toast, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (activeManifest != null
+            && (activeManifest.stageFlowGroups == null || activeManifest.stageFlowGroups.isEmpty())
+            && activeManifest.defaultOneClickAction != null) {
+            runRemoteBootstrapAction(
+                "manifest_full",
+                getString(R.string.button_stage_one_click_mode),
+                activeManifest.defaultOneClickAction
+            );
+            return;
+        }
+
+        oneClickStagesInFlight = true;
+        setOneClickStageMode(true);
+        oneClickStageSummaryView.setText(getString(R.string.one_click_stage_summary_running, "刷新阶段状态"));
+        requestStageStatusRefresh();
+    }
+
+    private void stopOneClickStages(String message) {
+        oneClickStagesInFlight = false;
+        if (oneClickStageSummaryView != null) {
+            oneClickStageSummaryView.setText(getString(R.string.one_click_stage_summary_waiting, message));
+        }
+        updateExecutionModeViews();
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void continueOneClickStages() {
+        if (!oneClickStagesInFlight || commandInFlight || stageStatusCheckInFlight) return;
+
+        for (StageAction stageAction : getOneClickStageSequence()) {
+            StagePresentation presentation = stagePresentations.get(stageAction);
+            if (presentation == null || presentation.state == StageUiState.CHECKING) {
+                requestStageStatusRefresh();
+                return;
+            }
+
+            if (presentation.state == StageUiState.COMPLETE) {
+                continue;
+            }
+
+            if (presentation.state == StageUiState.BLOCKED) {
+                String reason = stageAction.label(this) + "：" + presentation.detail;
+                oneClickStagesInFlight = false;
+                oneClickStageSummaryView.setText(getString(R.string.one_click_stage_summary_waiting, reason));
+                updateExecutionModeViews();
+                Toast.makeText(this, getString(R.string.one_click_stage_toast_blocked, reason), Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            oneClickStageSummaryView.setText(getString(R.string.one_click_stage_summary_running, stageAction.label(this)));
+            updateExecutionModeViews();
+            runStage(stageAction, true);
+            return;
+        }
+
+        oneClickStagesInFlight = false;
+        oneClickStageSummaryView.setText(R.string.one_click_stage_summary_complete);
+        updateExecutionModeViews();
+        Toast.makeText(this, R.string.one_click_stage_toast_complete, Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateExecutionModeViews() {
+        if (oneClickStagePanel != null) {
+            oneClickStagePanel.setVisibility(oneClickStageMode ? View.VISIBLE : View.GONE);
+        }
+        if (stageActionsPanel != null) {
+            stageActionsPanel.setVisibility(oneClickStageMode ? View.GONE : View.VISIBLE);
+        }
+
+        applyModeButtonState(stageManualModeButton, !oneClickStageMode);
+        applyModeButtonState(stageOneClickModeButton, oneClickStageMode);
+
+        if (startOneClickStagesButton != null) {
+            startOneClickStagesButton.setText(oneClickStagesInFlight
+                ? R.string.button_stop_one_click_stages
+                : R.string.button_start_one_click_stages);
+            startOneClickStagesButton.setEnabled(oneClickStagesInFlight || (!commandInFlight && !isBatteryRequirementBlocking()));
+            startOneClickStagesButton.setAlpha(startOneClickStagesButton.isEnabled() ? 1.0f : 0.78f);
+            startOneClickStagesButton.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(
+                this,
+                oneClickStagesInFlight ? R.color.stageRunning : R.color.stageComplete
+            )));
+            startOneClickStagesButton.setTextColor(ContextCompat.getColor(
+                this,
+                oneClickStagesInFlight ? R.color.stageRunningText : R.color.stageOnDark
+            ));
+        }
+        updateOneClickStageItems();
+    }
+
+    private void updateOneClickStageItems() {
+        StageAction nextStageAction = findNextOneClickStage();
+        List<StageAction> sequence = getOneClickStageSequence();
+        if (oneClickStageItemsContainer != null) {
+            setLegacyOneClickStageItemsVisibility(View.GONE);
+            oneClickStageItemsContainer.removeAllViews();
+            for (int i = 0; i < sequence.size(); i++) {
+                TextView row = createOneClickStageItemView(i == 0);
+                updateOneClickStageActionItem(row, i + 1, sequence.get(i), nextStageAction);
+                oneClickStageItemsContainer.addView(row);
+            }
+            return;
+        }
+
+        List<StageAction> visibleSequence = sequence.size() > 7
+            ? sequence.subList(0, 7)
+            : sequence;
+        TextView[] itemViews = new TextView[] {
+            oneClickPrepareItemView,
+            oneClickUbuntuPackagesItemView,
+            oneClickOpenCodeItemView,
+            oneClickCodexItemView,
+            oneClickClaudeCodeItemView,
+            oneClickSkillItemView,
+            oneClickStartItemView
+        };
+
+        for (int i = 0; i < itemViews.length; i++) {
+            TextView view = itemViews[i];
+            if (view == null) continue;
+            if (i >= visibleSequence.size()) {
+                view.setVisibility(View.GONE);
+                continue;
+            }
+            view.setVisibility(View.VISIBLE);
+            updateOneClickStageActionItem(view, i + 1, visibleSequence.get(i), nextStageAction);
+        }
+    }
+
+    private TextView createOneClickStageItemView(boolean first) {
+        TextView view = new TextView(this);
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        layoutParams.topMargin = first ? 0 : dp(8);
+        view.setLayoutParams(layoutParams);
+        view.setBackgroundResource(R.drawable.one_click_item_bg);
+        view.setLineSpacing(dp(2), 1.0f);
+        view.setPadding(dp(12), dp(12), dp(12), dp(12));
+        view.setTextSize(13);
+        return view;
+    }
+
+    private void setLegacyOneClickStageItemsVisibility(int visibility) {
+        TextView[] legacyViews = new TextView[] {
+            oneClickPrepareItemView,
+            oneClickUbuntuPackagesItemView,
+            oneClickOpenCodeItemView,
+            oneClickCodexItemView,
+            oneClickClaudeCodeItemView,
+            oneClickSkillItemView,
+            oneClickStartItemView
+        };
+        for (TextView view : legacyViews) {
+            if (view != null) {
+                view.setVisibility(visibility);
+            }
+        }
+    }
+
+    private void updateOneClickStageActionItem(
+        TextView view,
+        int number,
+        StageAction stageAction,
+        StageAction nextStageAction
+    ) {
+        if (view == null) return;
+
+        StagePresentation presentation = stagePresentations.get(stageAction);
+        int statusRes;
+        int backgroundColorRes;
+        int textColorRes;
+        String detail = presentation == null
+            ? getString(R.string.stage_detail_checking)
+            : getStageDescription(stageAction, presentation.detail);
+
+        if (presentation == null || presentation.state == StageUiState.CHECKING) {
+            statusRes = R.string.one_click_auto_status_checking;
+            backgroundColorRes = R.color.stageChecking;
+            textColorRes = R.color.stageCheckingText;
+        } else if (presentation.state == StageUiState.COMPLETE) {
+            statusRes = R.string.one_click_auto_status_done;
+            backgroundColorRes = R.color.stageComplete;
+            textColorRes = R.color.stageOnDark;
+        } else if (presentation.state == StageUiState.RUNNING) {
+            statusRes = R.string.one_click_auto_status_running;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else if (presentation.state == StageUiState.BLOCKED || presentation.state == StageUiState.FAILED) {
+            statusRes = stageAction == nextStageAction
+                ? R.string.one_click_auto_status_blocked
+                : R.string.one_click_auto_status_waiting;
+            backgroundColorRes = stageAction == nextStageAction ? R.color.stageFailed : R.color.stageBlocked;
+            textColorRes = stageAction == nextStageAction ? R.color.stageOnDark : R.color.stageBlockedText;
+        } else if (stageAction == nextStageAction) {
+            statusRes = R.string.one_click_auto_status_next;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else {
+            statusRes = R.string.one_click_auto_status_waiting;
+            backgroundColorRes = R.color.stageBlocked;
+            textColorRes = R.color.stageBlockedText;
+        }
+
+        view.setText(getString(
+            R.string.one_click_auto_item_text,
+            number,
+            stageAction.label(this),
+            getString(statusRes),
+            detail
+        ));
+        view.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this, backgroundColorRes)));
+        view.setTextColor(ContextCompat.getColor(this, textColorRes));
+    }
+
+    private StageAction findNextOneClickStage() {
+        for (StageAction stageAction : getOneClickStageSequence()) {
+            StagePresentation presentation = stagePresentations.get(stageAction);
+            if (presentation == null || presentation.state != StageUiState.COMPLETE) {
+                return stageAction;
+            }
+        }
+        return null;
+    }
+
+    private List<StageAction> getOneClickStageSequence() {
+        List<StageAction> sequence = new ArrayList<>();
+        for (StageFlowGroup group : getStageFlowGroups()) {
+            for (StageAction stageAction : group.stageActions) {
+                if (!sequence.contains(stageAction)) {
+                    sequence.add(stageAction);
+                }
+            }
+        }
+        if (sequence.isEmpty()) {
+            sequence.addAll(Arrays.asList(ONE_CLICK_STAGE_SEQUENCE));
+        }
+        return sequence;
+    }
+
+    private List<StageFlowGroup> getStageFlowGroups() {
+        if (activeManifest != null && activeManifest.stageFlowGroups != null && !activeManifest.stageFlowGroups.isEmpty()) {
+            return activeManifest.stageFlowGroups;
+        }
+
+        List<StageFlowGroup> groups = new ArrayList<>();
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_prepare_title),
+            getString(R.string.one_click_auto_prepare_detail),
+            new StageAction[] {
+                StageAction.PREPARE,
+                StageAction.TERMUX_PACKAGES,
+                StageAction.INSTALL_UBUNTU,
+                StageAction.SYNC_OFFICIAL_DOCS
+            }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_ubuntu_title),
+            getString(R.string.one_click_auto_ubuntu_detail),
+            new StageAction[] { StageAction.UBUNTU_PACKAGES }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_entry_ubuntu_title),
+            getString(R.string.one_click_auto_entry_ubuntu_detail),
+            new StageAction[] { StageAction.CONFIGURE_ENTRY_UBUNTU }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_opencode_title),
+            getString(R.string.one_click_auto_opencode_detail),
+            new StageAction[] { StageAction.INSTALL_OPENCODE }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_codex_title),
+            getString(R.string.one_click_auto_codex_detail),
+            new StageAction[] { StageAction.INSTALL_CODEX }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_claude_code_title),
+            getString(R.string.one_click_auto_claude_code_detail),
+            new StageAction[] { StageAction.INSTALL_CLAUDE_CODE }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_skill_title),
+            getString(R.string.one_click_auto_skill_detail),
+            new StageAction[] { StageAction.INSTALL_SYSTEM_ENV_SKILL }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_start_title),
+            getString(R.string.one_click_auto_start_detail),
+            new StageAction[] { StageAction.START }
+        ));
+        return groups;
+    }
+
+    private void updateOneClickStageItem(
+        TextView view,
+        int number,
+        int titleRes,
+        int detailRes,
+        StageAction nextStageAction,
+        StageAction... stageActions
+    ) {
+        if (view == null) return;
+
+        boolean allComplete = true;
+        boolean containsNext = false;
+        boolean hasRunning = false;
+        boolean hasChecking = false;
+        boolean hasBlocked = false;
+
+        for (StageAction stageAction : stageActions) {
+            if (stageAction == nextStageAction) {
+                containsNext = true;
+            }
+
+            StagePresentation presentation = stagePresentations.get(stageAction);
+            if (presentation == null) {
+                allComplete = false;
+                hasChecking = true;
+                continue;
+            }
+
+            if (presentation.state != StageUiState.COMPLETE) {
+                allComplete = false;
+            }
+            if (presentation.state == StageUiState.RUNNING) {
+                hasRunning = true;
+            } else if (presentation.state == StageUiState.CHECKING) {
+                hasChecking = true;
+            } else if (presentation.state == StageUiState.BLOCKED || presentation.state == StageUiState.FAILED) {
+                hasBlocked = true;
+            }
+        }
+
+        int statusRes;
+        int backgroundColorRes;
+        int textColorRes;
+        if (allComplete) {
+            statusRes = R.string.one_click_auto_status_done;
+            backgroundColorRes = R.color.stageComplete;
+            textColorRes = R.color.stageOnDark;
+        } else if (hasRunning) {
+            statusRes = R.string.one_click_auto_status_running;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else if (containsNext && hasBlocked) {
+            statusRes = R.string.one_click_auto_status_blocked;
+            backgroundColorRes = R.color.stageFailed;
+            textColorRes = R.color.stageOnDark;
+        } else if (containsNext) {
+            statusRes = R.string.one_click_auto_status_next;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else if (hasChecking) {
+            statusRes = R.string.one_click_auto_status_checking;
+            backgroundColorRes = R.color.stageChecking;
+            textColorRes = R.color.stageCheckingText;
+        } else {
+            statusRes = R.string.one_click_auto_status_waiting;
+            backgroundColorRes = R.color.stageBlocked;
+            textColorRes = R.color.stageBlockedText;
+        }
+
+        view.setText(getString(
+            R.string.one_click_auto_item_text,
+            number,
+            getString(titleRes),
+            getString(statusRes),
+            getString(detailRes)
+        ));
+        view.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this, backgroundColorRes)));
+        view.setTextColor(ContextCompat.getColor(this, textColorRes));
+    }
+
+    private void updateOneClickStageItem(
+        TextView view,
+        int number,
+        String title,
+        String detail,
+        StageAction nextStageAction,
+        StageAction... stageActions
+    ) {
+        if (view == null) return;
+
+        boolean allComplete = true;
+        boolean containsNext = false;
+        boolean hasRunning = false;
+        boolean hasChecking = false;
+        boolean hasBlocked = false;
+
+        for (StageAction stageAction : stageActions) {
+            if (stageAction == nextStageAction) {
+                containsNext = true;
+            }
+
+            StagePresentation presentation = stagePresentations.get(stageAction);
+            if (presentation == null) {
+                allComplete = false;
+                hasChecking = true;
+                continue;
+            }
+
+            if (presentation.state != StageUiState.COMPLETE) {
+                allComplete = false;
+            }
+            if (presentation.state == StageUiState.RUNNING) {
+                hasRunning = true;
+            } else if (presentation.state == StageUiState.CHECKING) {
+                hasChecking = true;
+            } else if (presentation.state == StageUiState.BLOCKED || presentation.state == StageUiState.FAILED) {
+                hasBlocked = true;
+            }
+        }
+
+        int statusRes;
+        int backgroundColorRes;
+        int textColorRes;
+        if (allComplete) {
+            statusRes = R.string.one_click_auto_status_done;
+            backgroundColorRes = R.color.stageComplete;
+            textColorRes = R.color.stageOnDark;
+        } else if (hasRunning) {
+            statusRes = R.string.one_click_auto_status_running;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else if (containsNext && hasBlocked) {
+            statusRes = R.string.one_click_auto_status_blocked;
+            backgroundColorRes = R.color.stageFailed;
+            textColorRes = R.color.stageOnDark;
+        } else if (containsNext) {
+            statusRes = R.string.one_click_auto_status_next;
+            backgroundColorRes = R.color.stageRunning;
+            textColorRes = R.color.stageRunningText;
+        } else if (hasChecking) {
+            statusRes = R.string.one_click_auto_status_checking;
+            backgroundColorRes = R.color.stageChecking;
+            textColorRes = R.color.stageCheckingText;
+        } else {
+            statusRes = R.string.one_click_auto_status_waiting;
+            backgroundColorRes = R.color.stageBlocked;
+            textColorRes = R.color.stageBlockedText;
+        }
+
+        view.setText(getString(
+            R.string.one_click_auto_item_text,
+            number,
+            title,
+            getString(statusRes),
+            detail
+        ));
+        view.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this, backgroundColorRes)));
+        view.setTextColor(ContextCompat.getColor(this, textColorRes));
+    }
+
+    private String getStageTitle(StageAction stageAction) {
+        ManifestStage manifestStage = activeManifest == null ? null : activeManifest.stages.get(stageAction.slug);
+        if (manifestStage != null && manifestStage.title != null && !manifestStage.title.isEmpty()) {
+            return manifestStage.title;
+        }
+        return getBuiltInStageTitle(stageAction);
+    }
+
+    private String getStageDescription(StageAction stageAction, String builtInDetail) {
+        ManifestStage manifestStage = activeManifest == null ? null : activeManifest.stages.get(stageAction.slug);
+        if (manifestStage != null && manifestStage.description != null && !manifestStage.description.isEmpty()) {
+            return manifestStage.description;
+        }
+        return builtInDetail;
+    }
+
+    private String getBuiltInStageTitle(StageAction stageAction) {
+        switch (stageAction) {
+            case PREPARE:
+                return getString(R.string.button_prepare);
+            case TERMUX_PACKAGES:
+                return getString(R.string.button_termux_packages);
+            case INSTALL_UBUNTU:
+                return getString(R.string.button_install_ubuntu);
+            case SYNC_OFFICIAL_DOCS:
+                return getString(R.string.button_sync_official_docs);
+            case UBUNTU_PACKAGES:
+                return getString(R.string.button_ubuntu_packages);
+            case CONFIGURE_ENTRY_UBUNTU:
+                return getString(R.string.button_configure_entry_ubuntu);
+            case INSTALL_OPENCODE:
+                return getString(R.string.button_install_opencode);
+            case INSTALL_CODEX:
+                return getString(R.string.button_install_codex);
+            case INSTALL_CLAUDE_CODE:
+                return getString(R.string.button_install_claude_code);
+            case INSTALL_SYSTEM_ENV_SKILL:
+                return getString(R.string.button_install_system_env_skill);
+            case START:
+                return getString(R.string.button_start);
+            case RESTART:
+            default:
+                return getString(R.string.button_restart);
+        }
+    }
+
+    private void applyModeButtonState(Button button, boolean active) {
+        if (button == null) return;
+        button.setEnabled(!commandInFlight && !oneClickStagesInFlight);
+        button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
+        button.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(
+            this,
+            active ? R.color.stageComplete : R.color.stageReady
+        )));
+        button.setTextColor(ContextCompat.getColor(
+            this,
+            active ? R.color.stageOnDark : R.color.stageReadyText
+        ));
     }
 
     private void bindStageButton(StageAction stageAction, int buttonId) {
@@ -313,6 +1370,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             return;
         }
 
+        boolean usesRemoteManifestStage = activeManifest != null && activeManifest.stages.containsKey(stageAction.slug);
+        if (!usesRemoteManifestStage && stageAction == StageAction.INSTALL_OPENCODE && shouldProbeOpenCodeSourceBeforeInstall()) {
+            runOpenCodeSourceProbe(true);
+            return;
+        }
+
         pendingStageAction = null;
         ensureMaintenanceSession();
         if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
@@ -326,6 +1389,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         currentStageLabel = stageAction.label(this);
         currentStageView.setText(currentStageLabel);
         commandInFlight = true;
+        openMaintenanceWebAfterStage = false;
         lastHandledMarker = null;
         terminalStatusView.setText(R.string.embedded_terminal_status_busy);
         liveLogView.setText(getString(R.string.result_placeholder));
@@ -349,14 +1413,318 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private String buildStageExecutionCommand(StageAction stageAction) throws IOException {
-        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, getDefaultOpenCodePort());
+        ManifestStage manifestStage = activeManifest == null ? null : activeManifest.stages.get(stageAction.slug);
+        if (manifestStage != null) {
+            return buildRemoteBootstrapExecutionCommand(
+                manifestStage.title,
+                stageAction.slug,
+                manifestStage.action
+            );
+        }
+
+        OpenCodeInstallSpec installSpec = stageAction == StageAction.INSTALL_OPENCODE
+            ? resolveOpenCodeInstallSpec()
+            : OpenCodeInstallSpec.defaultSpec(this);
+        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, getDefaultOpenCodePort(), installSpec);
     }
 
-    private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port) throws IOException {
+    private void runRemoteBootstrapAction(String stageSlug, String stageLabel, BootstrapAction action) {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isBatteryRequirementBlocking()) {
+            currentStageView.setText(getString(R.string.permission_requirement_state_required));
+            Toast.makeText(this, R.string.permission_battery_required_toast, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        ensureMaintenanceSession();
+        if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
+            || !maintenanceSession.getTerminalSession().isRunning()) {
+            Toast.makeText(this, R.string.status_terminal_failed, Toast.LENGTH_SHORT).show();
+            refreshStatus();
+            return;
+        }
+
+        currentStageSlug = stageSlug;
+        currentStageLabel = stageLabel;
+        commandInFlight = true;
+        oneClickStagesInFlight = "manifest_full".equals(stageSlug);
+        openMaintenanceWebAfterStage = false;
+        lastHandledMarker = null;
+        terminalStatusView.setText(R.string.embedded_terminal_status_busy);
+        liveLogView.setText(getString(R.string.result_placeholder));
+        updateLogButtonState();
+        refreshStatus();
+        updateExecutionModeViews();
+
+        try {
+            String command = buildRemoteBootstrapExecutionCommand(stageLabel, stageSlug, action);
+            maintenanceSession.getTerminalSession().write(command);
+            if (!command.endsWith("\n")) {
+                maintenanceSession.getTerminalSession().write("\n");
+            }
+        } catch (IOException e) {
+            commandInFlight = false;
+            oneClickStagesInFlight = false;
+            terminalStatusView.setText(R.string.embedded_terminal_status_ready);
+            liveLogView.setText(getString(R.string.full_log_error, e.getMessage()));
+            refreshStatus();
+            updateExecutionModeViews();
+        }
+    }
+
+    private void startLocalMaintenanceWeb() {
+        BootstrapAction action = new BootstrapAction(new String[] { "web-start" });
+        runBootstrapAction(
+            "local_maintenance_web",
+            getString(R.string.local_maintenance_web_title),
+            action,
+            getBootstrapUrlForLocalMaintenance()
+        );
+    }
+
+    private void stopLocalMaintenanceWeb() {
+        String scriptBody =
+            "OPENHOUSE_DIR=\"$HOME/.openhouse\"\n"
+                + "WEB_DIR=\"$OPENHOUSE_DIR/web\"\n"
+                + "SERVER_FILE=\"$WEB_DIR/openhouse_web_server.py\"\n"
+                + "PID_FILE=\"$OPENHOUSE_DIR/web.pid\"\n"
+                + "PORT_FILE=\"$OPENHOUSE_DIR/web-port\"\n"
+                + "PORT=\"" + getLocalMaintenanceWebPort() + "\"\n"
+                + "if [ -f \"$PORT_FILE\" ]; then PORT=\"$(tr -d '[:space:]' < \"$PORT_FILE\" 2>/dev/null || printf '%s' \"$PORT\")\"; fi\n"
+                + "stopped=0\n"
+                + "if [ -f \"$PID_FILE\" ]; then\n"
+                + "  pid=\"$(cat \"$PID_FILE\" 2>/dev/null || true)\"\n"
+                + "  if [ -n \"$pid\" ] && kill -0 \"$pid\" >/dev/null 2>&1; then\n"
+                + "    kill \"$pid\" >/dev/null 2>&1 || true\n"
+                + "    stopped=1\n"
+                + "  fi\n"
+                + "  rm -f \"$PID_FILE\"\n"
+                + "fi\n"
+                + "if [ \"$stopped\" -eq 0 ] && command -v pkill >/dev/null 2>&1; then\n"
+                + "  if pkill -f \"$SERVER_FILE\" >/dev/null 2>&1; then stopped=1; fi\n"
+                + "fi\n"
+                + "if [ \"$stopped\" -eq 1 ]; then\n"
+                + "  log \"本地网页维护器已关闭。端口：$PORT\"\n"
+                + "else\n"
+                + "  log \"本地网页维护器未运行。端口：$PORT\"\n"
+                + "fi\n";
+        runLocalMaintenanceScript(
+            "local_maintenance_web_stop",
+            getString(R.string.button_stop_maintenance_web),
+            scriptBody
+        );
+    }
+
+    private void runLocalMaintenanceScript(String stageSlug, String stageLabel, String scriptBody) {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ensureMaintenanceSession();
+        if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
+            || !maintenanceSession.getTerminalSession().isRunning()) {
+            Toast.makeText(this, R.string.status_terminal_failed, Toast.LENGTH_SHORT).show();
+            refreshStatus();
+            return;
+        }
+
+        currentStageSlug = stageSlug;
+        currentStageLabel = stageLabel;
+        commandInFlight = true;
+        openMaintenanceWebAfterStage = false;
+        lastHandledMarker = null;
+        terminalStatusView.setText(R.string.embedded_terminal_status_busy);
+        liveLogView.setText(getString(R.string.result_placeholder));
+        updateLogButtonState();
+        refreshStatus();
+        updateExecutionModeViews();
+
+        String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody);
+        String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
+        StringBuilder command = new StringBuilder();
+        command.append("mkdir -p ").append(shellQuote(TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs")).append('\n');
+        command.append("cat > ").append(shellQuote(tempScriptPath)).append(" <<'__TERMUX_MAINT__'\n");
+        command.append(wrapperScript);
+        if (!wrapperScript.endsWith("\n")) {
+            command.append('\n');
+        }
+        command.append("__TERMUX_MAINT__\n");
+        command.append("/data/data/com.termux/files/usr/bin/bash ").append(shellQuote(tempScriptPath)).append('\n');
+        command.append("rm -f ").append(shellQuote(tempScriptPath)).append('\n');
+
+        maintenanceSession.getTerminalSession().write(command.toString());
+    }
+
+    private void runBootstrapAction(String stageSlug, String stageLabel, BootstrapAction action, String bootstrapUrl) {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isBatteryRequirementBlocking()) {
+            currentStageView.setText(getString(R.string.permission_requirement_state_required));
+            Toast.makeText(this, R.string.permission_battery_required_toast, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        ensureMaintenanceSession();
+        if (maintenanceSession == null || maintenanceSession.getTerminalSession() == null
+            || !maintenanceSession.getTerminalSession().isRunning()) {
+            Toast.makeText(this, R.string.status_terminal_failed, Toast.LENGTH_SHORT).show();
+            refreshStatus();
+            return;
+        }
+
+        currentStageSlug = stageSlug;
+        currentStageLabel = stageLabel;
+        commandInFlight = true;
+        openMaintenanceWebAfterStage = "local_maintenance_web".equals(stageSlug);
+        lastHandledMarker = null;
+        terminalStatusView.setText(R.string.embedded_terminal_status_busy);
+        liveLogView.setText(getString(R.string.result_placeholder));
+        updateLogButtonState();
+        refreshStatus();
+        updateExecutionModeViews();
+
+        try {
+            String command = buildBootstrapExecutionCommand(stageLabel, stageSlug, action, bootstrapUrl);
+            maintenanceSession.getTerminalSession().write(command);
+            if (!command.endsWith("\n")) {
+                maintenanceSession.getTerminalSession().write("\n");
+            }
+        } catch (IOException e) {
+            commandInFlight = false;
+            openMaintenanceWebAfterStage = false;
+            terminalStatusView.setText(R.string.embedded_terminal_status_ready);
+            liveLogView.setText(getString(R.string.full_log_error, e.getMessage()));
+            refreshStatus();
+            updateExecutionModeViews();
+        }
+    }
+
+    private String buildRemoteBootstrapExecutionCommand(String stageLabel, String stageSlug, BootstrapAction action) throws IOException {
+        if (activeManifest == null) {
+            throw new IOException("远程维护源尚未加载");
+        }
+
+        return buildBootstrapExecutionCommand(stageLabel, stageSlug, action, activeManifest.bootstrapUrl);
+    }
+
+    private String buildBootstrapExecutionCommand(String stageLabel, String stageSlug, BootstrapAction action, String bootstrapUrl) throws IOException {
+        StringBuilder scriptBody = new StringBuilder();
+        scriptBody.append("BOOTSTRAP_URL=").append(shellQuote(bootstrapUrl)).append('\n');
+        scriptBody.append("ensure_curl(){\n");
+        scriptBody.append("  log '正在更新 Termux 包索引并修复 curl 网络依赖。'\n");
+        scriptBody.append("  if command -v pkg >/dev/null 2>&1; then\n");
+        scriptBody.append("    run_logged pkg update -y || true\n");
+        scriptBody.append("    run_logged pkg install -y curl libcurl libngtcp2 libnghttp2 openssl ca-certificates || true\n");
+        scriptBody.append("  else\n");
+        scriptBody.append("    log '缺少 pkg，跳过自动修复 curl。'\n");
+        scriptBody.append("  fi\n");
+        scriptBody.append("  if ! curl --version >/dev/null 2>&1; then\n");
+        scriptBody.append("    log 'curl 修复失败，请手动执行：pkg upgrade -y && pkg install -y curl libcurl libngtcp2 libnghttp2 openssl ca-certificates'\n");
+        scriptBody.append("    exit 12\n");
+        scriptBody.append("  fi\n");
+        scriptBody.append("}\n");
+        scriptBody.append("download_file(){\n");
+        scriptBody.append("  local url=\"$1\" output=\"$2\" attempt=1\n");
+        scriptBody.append("  while [ \"$attempt\" -le 5 ]; do\n");
+        scriptBody.append("    log \"下载：$url（第 $attempt 次）\"\n");
+        scriptBody.append("    if run_logged curl -fL --connect-timeout 20 --retry 3 --retry-delay 2 --retry-all-errors \"$url\" -o \"$output\"; then return 0; fi\n");
+        scriptBody.append("    attempt=$((attempt + 1))\n");
+        scriptBody.append("    sleep 2\n");
+        scriptBody.append("  done\n");
+        scriptBody.append("  return 1\n");
+        scriptBody.append("}\n");
+        scriptBody.append("ensure_curl\n");
+        scriptBody.append("log \"正在下载远程维护脚本：$BOOTSTRAP_URL\"\n");
+        scriptBody.append("download_file \"$BOOTSTRAP_URL\" \"$HOME/openhouse-bootstrap.sh\"\n");
+        scriptBody.append("chmod +x \"$HOME/openhouse-bootstrap.sh\"\n");
+        scriptBody.append("log \"正在执行远程维护动作：").append(action.toDisplayString()).append("\"\n");
+        scriptBody.append("run_logged env OPENHOUSE_PORT=").append(shellQuote(Integer.toString(getDefaultOpenCodePort())))
+            .append(" OPENHOUSE_WEB_PORT=").append(shellQuote(Integer.toString(getLocalMaintenanceWebPort())))
+            .append(" bash \"$HOME/openhouse-bootstrap.sh\"");
+        for (String arg : action.args) {
+            scriptBody.append(' ').append(shellQuote(arg));
+        }
+        scriptBody.append('\n');
+
+        String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody.toString());
+        String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("mkdir -p ").append(shellQuote(TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs")).append('\n');
+        builder.append("cat > ").append(shellQuote(tempScriptPath)).append(" <<'__TERMUX_MAINT__'\n");
+        builder.append(wrapperScript);
+        if (!wrapperScript.endsWith("\n")) {
+            builder.append('\n');
+        }
+        builder.append("__TERMUX_MAINT__\n");
+        builder.append("/data/data/com.termux/files/usr/bin/bash ").append(shellQuote(tempScriptPath)).append('\n');
+        builder.append("rm -f ").append(shellQuote(tempScriptPath)).append('\n');
+        return builder.toString();
+    }
+
+    private String getBootstrapUrlForLocalMaintenance() {
+        if (activeManifest != null && activeManifest.bootstrapUrl != null && !activeManifest.bootstrapUrl.trim().isEmpty()) {
+            return activeManifest.bootstrapUrl;
+        }
+        return DEFAULT_BOOTSTRAP_URL;
+    }
+
+    private void showLocalMaintenanceWebPortDialog() {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint(getString(R.string.local_maintenance_web_port_dialog_hint));
+        input.setText(Integer.toString(getLocalMaintenanceWebPort()));
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.local_maintenance_web_port_dialog_title)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                int port;
+                try {
+                    port = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, R.string.local_maintenance_web_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (!isValidLocalMaintenanceWebPort(port)) {
+                    Toast.makeText(this, R.string.local_maintenance_web_port_invalid, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                maintenancePreferences.edit().putInt(PREF_LOCAL_MAINTENANCE_WEB_PORT, port).apply();
+                Toast.makeText(this, getString(R.string.local_maintenance_web_port_saved, port), Toast.LENGTH_SHORT).show();
+                updateLocalMaintenanceWebCard();
+            })
+            .show();
+    }
+
+    private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port, OpenCodeInstallSpec installSpec) throws IOException {
         String scriptBody = loadAsset(assetName)
             .replace("__PORT__", Integer.toString(port))
             .replace("__BUNDLED_OFFICIAL_DOCS__", buildBundledAssetWriteSnippet(OFFICIAL_DOCS_ASSET_DIR, "OFFICIAL_DOC_DIR"))
-            .replace("__BUNDLED_SYSTEM_ENV_SKILL__", buildBundledAssetWriteSnippet(SYSTEM_ENV_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"));
+            .replace("__BUNDLED_SYSTEM_ENV_SKILL__", buildBundledAssetWriteSnippet(SYSTEM_ENV_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"))
+            .replace("__BUNDLED_OPENCODE_AGENT_INSTALL_SKILL__", buildBundledAssetWriteSnippet(OPENCODE_AGENT_INSTALL_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"))
+            .replace("__OPENCODE_INSTALL_PRIMARY_URL__", installSpec.primaryUrl)
+            .replace("__OPENCODE_INSTALL_PRIMARY_LABEL__", installSpec.primaryLabel)
+            .replace("__OPENCODE_INSTALL_SECONDARY_URL__", installSpec.secondaryUrl)
+            .replace("__OPENCODE_INSTALL_SECONDARY_LABEL__", installSpec.secondaryLabel)
+            .replace("__OPENCODE_INSTALL_ALLOW_FALLBACK__", installSpec.allowFallback ? "1" : "0");
         String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody);
         String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
 
@@ -440,6 +1808,33 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             .show();
     }
 
+    private void showDownloadSourceModeDialog() {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        OpenCodeDownloadSourceSettings.Mode[] modes = OpenCodeDownloadSourceSettings.Mode.values();
+        String[] labels = new String[] {
+            getString(R.string.download_source_mode_auto),
+            getString(R.string.download_source_mode_official_only),
+            getString(R.string.download_source_mode_mirror_only)
+        };
+
+        int checkedItem = OpenCodeDownloadSourceSettings.getMode(this).ordinal();
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.button_configure_download_source)
+            .setSingleChoiceItems(labels, checkedItem, (dialog, which) -> {
+                OpenCodeDownloadSourceSettings.Mode selectedMode = modes[which];
+                OpenCodeDownloadSourceSettings.setMode(this, selectedMode);
+                Toast.makeText(this, getString(R.string.download_source_mode_saved, getDownloadSourceModeLabel(selectedMode)), Toast.LENGTH_SHORT).show();
+                refreshStatus();
+                dialog.dismiss();
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
     private void runCustomPortStart(int port) {
         if (commandInFlight) {
             Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
@@ -470,7 +1865,13 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         refreshStatus();
 
         try {
-            String command = buildAssetExecutionCommand(currentStageLabel, currentStageSlug, "start-opencode.sh", port);
+            String command = buildAssetExecutionCommand(
+                currentStageLabel,
+                currentStageSlug,
+                "start-opencode.sh",
+                port,
+                OpenCodeInstallSpec.defaultSpec(this)
+            );
             maintenanceSession.getTerminalSession().write(command);
             if (!command.endsWith("\n")) {
                 maintenanceSession.getTerminalSession().write("\n");
@@ -488,6 +1889,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         builder.append("#!/data/data/com.termux/files/usr/bin/bash\n");
         builder.append("set -euo pipefail\n");
         builder.append("export HOME=\"${HOME:-/data/data/com.termux/files/home}\"\n");
+        builder.append("export PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"\n");
+        builder.append("export PATH=\"$PREFIX/bin:/system/bin:${PATH:-}\"\n");
+        builder.append("export LD_LIBRARY_PATH=\"$PREFIX/lib:${LD_LIBRARY_PATH:-}\"\n");
+        builder.append("export TMPDIR=\"${TMPDIR:-$PREFIX/tmp}\"\n");
         builder.append("export TERM=\"xterm-256color\"\n");
         builder.append("STAGE_NAME=").append(shellQuote(stageLabel)).append('\n');
         builder.append("STAGE_SLUG=").append(shellQuote(stageSlug)).append('\n');
@@ -518,7 +1923,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
     }
 
     private void openBrowser() {
-        String url = getOpenCodeUrl();
+        openUrl(getOpenCodeUrl(), "OpenCode browser URL");
+    }
+
+    private void openUrl(String url, String label) {
         backgroundExecutor.execute(() -> {
             boolean openedViaCdp = OpenCodeCdpBridge.isCdpActive() && OpenCodeCdpBridge.openTab(url);
             runOnUiThread(() -> {
@@ -531,7 +1939,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     Toast.makeText(this, R.string.quick_launch_browser_fallback, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open OpenCode browser URL", e);
+                    Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open " + label, e);
                     Toast.makeText(this, getString(R.string.full_log_error, e.getMessage()), Toast.LENGTH_SHORT).show();
                 }
             });
@@ -544,6 +1952,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             && maintenanceSession.getTerminalSession().isRunning();
         String stageOverview = getStageOverviewText();
         String permissionOverview = getPermissionOverviewText();
+        String downloadSourceStatus = getDownloadSourceStatusText();
 
         if (commandInFlight) {
             statusHeadlineView.setText(R.string.status_running_title);
@@ -564,6 +1973,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         body.append("OpenCode 端点：").append(getOpenCodeStatusText()).append('\n');
         body.append(getString(R.string.default_port_label, getDefaultOpenCodePort())).append('\n');
         body.append(getString(R.string.default_browser_label, getOpenCodeUrl())).append('\n');
+        body.append(downloadSourceStatus).append('\n');
         body.append(permissionOverview).append('\n');
         body.append("产品文档：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/product-docs").append('\n');
         body.append("工作区：").append(TermuxConstants.TERMUX_HOME_DIR_PATH).append("/workspace").append('\n');
@@ -572,6 +1982,8 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         updateCurrentStageSummary();
         updateOpenBrowserButtonState();
         updatePermissionButtons();
+        updateDownloadSourceCard();
+        updateLocalMaintenanceWebCard();
     }
 
     private String getOpenCodeStatusText() {
@@ -632,20 +2044,160 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         }
     }
 
-    private void applyPermissionButtonState(Button button, boolean granted, String label, String tag, String grantedDetail, String missingDetail) {
+    private void applyPermissionButtonState(SwitchCompat button, boolean granted, String label, String tag, String grantedDetail, String missingDetail) {
         if (button == null) return;
 
-        int backgroundColor = ContextCompat.getColor(this, granted ? R.color.stageComplete : R.color.stageReady);
-        int textColor = ContextCompat.getColor(this, granted ? R.color.stageOnDark : R.color.stageReadyText);
-        button.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
-        button.setTextColor(textColor);
+        button.setText(label + " · " + tag + "\n" + (granted ? grantedDetail : missingDetail));
+        button.setChecked(granted);
         button.setEnabled(!commandInFlight);
         button.setAlpha(button.isEnabled() ? 1.0f : 0.78f);
-        button.setText(
-            (granted ? getString(R.string.permission_badge_enabled) : getString(R.string.permission_badge_open))
-                + " · " + label + " · " + tag + "\n"
-                + (granted ? grantedDetail : missingDetail)
-        );
+    }
+
+    private void updateDownloadSourceCard() {
+        OpenCodeDownloadSourceSettings.Mode mode = OpenCodeDownloadSourceSettings.getMode(this);
+        String currentSourceLabel = getDownloadSourceLabel(getPreferredOpenCodeSourceId());
+        String summary = getDownloadSourceSummaryText(mode);
+
+        if (downloadSourceSummaryView != null) {
+            downloadSourceSummaryView.setText(
+                getString(R.string.download_source_strategy_line, getDownloadSourceModeLabel(mode))
+                    + "\n"
+                    + getString(R.string.download_source_current_line, currentSourceLabel)
+                    + "\n"
+                    + summary
+            );
+        }
+
+        if (configureDownloadSourceButton != null) {
+            configureDownloadSourceButton.setText(getString(R.string.button_configure_download_source_with_value, getDownloadSourceModeLabel(mode)));
+            configureDownloadSourceButton.setEnabled(!commandInFlight);
+            configureDownloadSourceButton.setAlpha(configureDownloadSourceButton.isEnabled() ? 1.0f : 0.78f);
+        }
+
+        if (probeDownloadSourceButton != null) {
+            probeDownloadSourceButton.setEnabled(!commandInFlight);
+            probeDownloadSourceButton.setAlpha(probeDownloadSourceButton.isEnabled() ? 1.0f : 0.78f);
+        }
+    }
+
+    private void updateLocalMaintenanceWebCard() {
+        int port = getLocalMaintenanceWebPort();
+        if (localMaintenanceWebSummaryView != null) {
+            localMaintenanceWebSummaryView.setText(getString(
+                R.string.local_maintenance_web_summary,
+                port,
+                getLocalMaintenanceWebUrl()
+            ));
+        }
+        if (configureMaintenanceWebPortButton != null) {
+            configureMaintenanceWebPortButton.setText(getString(R.string.button_configure_maintenance_web_port, port));
+            configureMaintenanceWebPortButton.setEnabled(!commandInFlight);
+            configureMaintenanceWebPortButton.setAlpha(configureMaintenanceWebPortButton.isEnabled() ? 1.0f : 0.78f);
+        }
+        if (openMaintenanceWebButton != null) {
+            openMaintenanceWebButton.setEnabled(!commandInFlight);
+            openMaintenanceWebButton.setAlpha(openMaintenanceWebButton.isEnabled() ? 1.0f : 0.78f);
+        }
+        if (stopMaintenanceWebButton != null) {
+            stopMaintenanceWebButton.setEnabled(!commandInFlight);
+            stopMaintenanceWebButton.setAlpha(stopMaintenanceWebButton.isEnabled() ? 1.0f : 0.78f);
+        }
+    }
+
+    private String getDownloadSourceStatusText() {
+        return getString(R.string.download_source_strategy_line, getDownloadSourceModeLabel(OpenCodeDownloadSourceSettings.getMode(this)))
+            + "；"
+            + getString(R.string.download_source_current_line, getDownloadSourceLabel(getPreferredOpenCodeSourceId()));
+    }
+
+    private String getDownloadSourceSummaryText(OpenCodeDownloadSourceSettings.Mode mode) {
+        if (PROBE_OPENCODE_SOURCE_SLUG.equals(currentStageSlug) && commandInFlight) {
+            return getString(R.string.download_source_summary_running);
+        }
+
+        switch (mode) {
+            case OFFICIAL_ONLY:
+                return getString(R.string.download_source_summary_manual_official);
+            case MIRROR_ONLY:
+                return getString(R.string.download_source_summary_manual_mirror);
+            case AUTO:
+            default:
+                String summary = OpenCodeDownloadSourceSettings.getLastProbeSummary(this);
+                if (summary == null || summary.trim().isEmpty()) {
+                    return getString(R.string.download_source_summary_pending);
+                }
+                return summary;
+        }
+    }
+
+    private String getDownloadSourceModeLabel(OpenCodeDownloadSourceSettings.Mode mode) {
+        switch (mode) {
+            case OFFICIAL_ONLY:
+                return getString(R.string.download_source_mode_official_only);
+            case MIRROR_ONLY:
+                return getString(R.string.download_source_mode_mirror_only);
+            case AUTO:
+            default:
+                return getString(R.string.download_source_mode_auto);
+        }
+    }
+
+    private String getDownloadSourceLabel(String sourceId) {
+        return OpenCodeDownloadSourceSettings.SOURCE_MIRROR.equals(OpenCodeDownloadSourceSettings.normalizeSourceId(sourceId))
+            ? getString(R.string.download_source_label_mirror)
+            : getString(R.string.download_source_label_official);
+    }
+
+    private String getPreferredOpenCodeSourceId() {
+        OpenCodeDownloadSourceSettings.Mode mode = OpenCodeDownloadSourceSettings.getMode(this);
+        switch (mode) {
+            case OFFICIAL_ONLY:
+                return OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL;
+            case MIRROR_ONLY:
+                return OpenCodeDownloadSourceSettings.SOURCE_MIRROR;
+            case AUTO:
+            default:
+                return OpenCodeDownloadSourceSettings.getLastSelectedSourceId(this);
+        }
+    }
+
+    private boolean shouldProbeOpenCodeSourceBeforeInstall() {
+        return OpenCodeDownloadSourceSettings.getMode(this) == OpenCodeDownloadSourceSettings.Mode.AUTO
+            && !OpenCodeDownloadSourceSettings.isLastProbeFresh(this);
+    }
+
+    private void runOpenCodeSourceProbe(boolean continueWithInstall) {
+        if (commandInFlight) {
+            Toast.makeText(this, R.string.command_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        currentStageSlug = PROBE_OPENCODE_SOURCE_SLUG;
+        currentStageLabel = getString(R.string.download_source_probe_stage_label);
+        commandInFlight = true;
+        lastHandledMarker = null;
+        pendingStageAction = null;
+        terminalStatusView.setText(R.string.embedded_terminal_status_busy);
+        liveLogView.setText(R.string.download_source_summary_running);
+        updateLogButtonState();
+        refreshStatus();
+
+        backgroundExecutor.execute(() -> {
+            OpenCodeSourceProbeResult result = probeOpenCodeSource();
+            runOnUiThread(() -> {
+                commandInFlight = false;
+                terminalStatusView.setText(R.string.embedded_terminal_status_ready);
+                refreshLiveLog();
+                refreshStatus();
+                requestStageStatusRefresh();
+                Toast.makeText(this,
+                    result.success ? R.string.download_source_probe_success_toast : R.string.download_source_probe_failed_toast,
+                    Toast.LENGTH_SHORT).show();
+                if (continueWithInstall) {
+                    runStage(StageAction.INSTALL_OPENCODE, true);
+                }
+            });
+        });
     }
 
     private boolean isBatteryRequirementEnabled() {
@@ -863,6 +2415,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     runStage(stageAction, true);
                     return;
                 }
+                if (!commandInFlight && oneClickStagesInFlight) {
+                    continueOneClickStages();
+                    return;
+                }
                 if (stageStatusCheckQueued) {
                     stageStatusCheckQueued = false;
                     requestStageStatusRefresh();
@@ -880,6 +2436,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             configureDefaultPortButton.setEnabled(!commandInFlight);
             configureDefaultPortButton.setAlpha(configureDefaultPortButton.isEnabled() ? 1.0f : 0.78f);
         }
+
+        updateDownloadSourceCard();
+        updateMaintenanceSourceCard();
+        updateLocalMaintenanceWebCard();
+        updateExecutionModeViews();
 
         for (StageAction stageAction : StageAction.values()) {
             Button button = stageButtons.get(stageAction);
@@ -908,9 +2469,14 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         boolean prepareComplete = isPrepareStageComplete();
         boolean termuxPackagesComplete = isTermuxPackagesStageComplete();
         boolean ubuntuInstalled = termuxPackagesComplete && isUbuntuInstalled();
-        boolean officialDocsSynced = ubuntuInstalled && isOfficialDocsSynced();
+        boolean officialDocsSynced = activeManifest != null
+            ? ubuntuInstalled
+            : ubuntuInstalled && isOfficialDocsSynced();
         boolean ubuntuPackagesComplete = officialDocsSynced && isUbuntuPackagesStageComplete();
-        boolean openCodeInstalled = ubuntuPackagesComplete && isOpenCodeInstalled();
+        boolean entryUbuntuConfigured = ubuntuPackagesComplete && isEntryUbuntuConfigured();
+        boolean openCodeInstalled = entryUbuntuConfigured && isOpenCodeInstalled();
+        boolean codexInstalled = ubuntuPackagesComplete && isCodexInstalled();
+        boolean claudeCodeInstalled = ubuntuPackagesComplete && isClaudeCodeInstalled();
         boolean systemEnvSkillInstalled = openCodeInstalled && isSystemEnvSkillInstalled();
         boolean openCodeRunning = systemEnvSkillInstalled && isOpenCodeWebReachable();
 
@@ -921,7 +2487,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         Integer installUbuntuExitCode = readLastExitCode(StageAction.INSTALL_UBUNTU);
         Integer syncOfficialDocsExitCode = readLastExitCode(StageAction.SYNC_OFFICIAL_DOCS);
         Integer ubuntuPackagesExitCode = readLastExitCode(StageAction.UBUNTU_PACKAGES);
+        Integer configureEntryUbuntuExitCode = readLastExitCode(StageAction.CONFIGURE_ENTRY_UBUNTU);
         Integer installOpenCodeExitCode = readLastExitCode(StageAction.INSTALL_OPENCODE);
+        Integer installCodexExitCode = readLastExitCode(StageAction.INSTALL_CODEX);
+        Integer installClaudeCodeExitCode = readLastExitCode(StageAction.INSTALL_CLAUDE_CODE);
         Integer installSystemEnvSkillExitCode = readLastExitCode(StageAction.INSTALL_SYSTEM_ENV_SKILL);
         Integer startExitCode = readLastExitCode(StageAction.START);
 
@@ -977,10 +2546,21 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         snapshot.presentations.put(
+            StageAction.CONFIGURE_ENTRY_UBUNTU,
+            entryUbuntuConfigured
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_configure_entry_ubuntu_complete))
+                : (!ubuntuPackagesComplete
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_configure_entry_ubuntu_blocked))
+                    : failedOrReady(configureEntryUbuntuExitCode,
+                        getString(R.string.stage_detail_configure_entry_ubuntu_failed),
+                        getString(R.string.stage_detail_configure_entry_ubuntu_ready)))
+        );
+
+        snapshot.presentations.put(
             StageAction.INSTALL_OPENCODE,
             openCodeInstalled
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_install_opencode_complete))
-                : (!ubuntuPackagesComplete
+                : (!entryUbuntuConfigured
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_opencode_blocked))
                     : failedOrReady(installOpenCodeExitCode,
                         getString(R.string.stage_detail_install_opencode_failed),
@@ -996,6 +2576,28 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                     : failedOrReady(installSystemEnvSkillExitCode,
                         getString(R.string.stage_detail_install_system_env_skill_failed),
                         getString(R.string.stage_detail_install_system_env_skill_ready)))
+        );
+
+        snapshot.presentations.put(
+            StageAction.INSTALL_CODEX,
+            codexInstalled
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_install_codex_complete))
+                : (!ubuntuPackagesComplete
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_codex_blocked))
+                    : failedOrReady(installCodexExitCode,
+                        getString(R.string.stage_detail_install_codex_failed),
+                        getString(R.string.stage_detail_install_codex_ready)))
+        );
+
+        snapshot.presentations.put(
+            StageAction.INSTALL_CLAUDE_CODE,
+            claudeCodeInstalled
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_install_claude_code_complete))
+                : (!ubuntuPackagesComplete
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_claude_code_blocked))
+                    : failedOrReady(installClaudeCodeExitCode,
+                        getString(R.string.stage_detail_install_claude_code_failed),
+                        getString(R.string.stage_detail_install_claude_code_ready)))
         );
 
         snapshot.presentations.put(
@@ -1096,9 +2698,27 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         ).isSuccess();
     }
 
+    private boolean isCodexInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v codex >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
+    private boolean isClaudeCodeInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v claude >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
     private boolean isSystemEnvSkillInstalled() {
         return runTermuxCommand(
-            "proot-distro login ubuntu -- bash -lc 'test -f \"$HOME/.config/opencode/skills/system-environment-description/SKILL.md\"'"
+            "proot-distro login ubuntu -- bash -lc 'test -f \"$HOME/.config/opencode/skills/system-environment-description/SKILL.md\" && test -f \"$HOME/.config/opencode/skills/install-ai-agents/SKILL.md\"'"
+        ).isSuccess();
+    }
+
+    private boolean isEntryUbuntuConfigured() {
+        return runTermuxCommand(
+            "test \"$(tr -d '[:space:]' < \"$HOME/.openhouse/entry-mode\" 2>/dev/null || true)\" = ubuntu && test -f \"$HOME/.openhouse/entry.sh\" && grep -Fq '# OpenHouse startup entry' \"$HOME/.bashrc\""
         ).isSuccess();
     }
 
@@ -1174,12 +2794,44 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         ).isSuccess();
     }
 
+    private OpenCodeInstallSpec resolveOpenCodeInstallSpec() {
+        OpenCodeDownloadSourceSettings.Mode mode = OpenCodeDownloadSourceSettings.getMode(this);
+        String primarySourceId = getPreferredOpenCodeSourceId();
+        String secondarySourceId = OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL.equals(primarySourceId)
+            ? OpenCodeDownloadSourceSettings.SOURCE_MIRROR
+            : OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL;
+        boolean allowFallback = mode == OpenCodeDownloadSourceSettings.Mode.AUTO;
+
+        return new OpenCodeInstallSpec(
+            primarySourceId,
+            getDownloadSourceLabel(primarySourceId),
+            OpenCodeDownloadSourceSettings.getInstallUrlForSource(primarySourceId),
+            secondarySourceId,
+            getDownloadSourceLabel(secondarySourceId),
+            OpenCodeDownloadSourceSettings.getInstallUrlForSource(secondarySourceId),
+            allowFallback
+        );
+    }
+
     private int getDefaultOpenCodePort() {
         return OpenCodeSettings.getDefaultPort(this);
     }
 
     private String getOpenCodeUrl() {
         return OpenCodeSettings.getDefaultLoopbackUrl(this);
+    }
+
+    private int getLocalMaintenanceWebPort() {
+        int port = maintenancePreferences.getInt(PREF_LOCAL_MAINTENANCE_WEB_PORT, DEFAULT_LOCAL_MAINTENANCE_WEB_PORT);
+        return isValidLocalMaintenanceWebPort(port) ? port : DEFAULT_LOCAL_MAINTENANCE_WEB_PORT;
+    }
+
+    private boolean isValidLocalMaintenanceWebPort(int port) {
+        return port >= MIN_LOCAL_MAINTENANCE_WEB_PORT && port <= MAX_LOCAL_MAINTENANCE_WEB_PORT;
+    }
+
+    private String getLocalMaintenanceWebUrl() {
+        return "http://127.0.0.1:" + getLocalMaintenanceWebPort() + "/";
     }
 
     private void updateLogButtonState() {
@@ -1197,9 +2849,6 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             liveLogView.setText(content.isEmpty() ? getString(R.string.result_placeholder) : content);
         } catch (IOException e) {
             liveLogView.setText(getString(R.string.full_log_error, e.getMessage()));
-        }
-        if (liveLogScrollView != null) {
-            liveLogScrollView.post(() -> liveLogScrollView.fullScroll(android.view.View.FOCUS_DOWN));
         }
         updateLogButtonState();
     }
@@ -1225,9 +2874,30 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             commandInFlight = false;
             currentStageView.setText((foundExitCode == 0 ? "已完成：" : "失败：") + currentStageLabel);
             terminalStatusView.setText(R.string.embedded_terminal_status_ready);
+            if (oneClickStagesInFlight) {
+                if (foundExitCode == 0 && "manifest_full".equals(foundSlug)) {
+                    oneClickStagesInFlight = false;
+                    if (oneClickStageSummaryView != null) {
+                        oneClickStageSummaryView.setText(R.string.one_click_stage_summary_complete);
+                    }
+                    Toast.makeText(this, R.string.one_click_stage_toast_complete, Toast.LENGTH_SHORT).show();
+                } else if (foundExitCode != 0) {
+                    oneClickStagesInFlight = false;
+                    if (oneClickStageSummaryView != null) {
+                        oneClickStageSummaryView.setText(getString(R.string.one_click_stage_summary_waiting, currentStageLabel));
+                    }
+                    Toast.makeText(this, getString(R.string.one_click_stage_toast_blocked, currentStageLabel), Toast.LENGTH_LONG).show();
+                }
+            }
+            boolean shouldOpenMaintenanceWeb = openMaintenanceWebAfterStage && foundExitCode == 0;
+            openMaintenanceWebAfterStage = false;
             refreshLiveLog();
             requestStageStatusRefresh();
             refreshStatus();
+            updateExecutionModeViews();
+            if (shouldOpenMaintenanceWeb) {
+                openUrl(getLocalMaintenanceWebUrl(), "本地网页维护器");
+            }
         }
     }
 
@@ -1296,6 +2966,188 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
     private static String shellQuote(String value) {
         return "'" + value.replace("'", "'\"'\"'") + "'";
+    }
+
+    private OpenCodeSourceProbeResult probeOpenCodeSource() {
+        long probeAt = System.currentTimeMillis();
+        SourceMeasurement official = measureSource(
+            OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL,
+            OpenCodeDownloadSourceSettings.OFFICIAL_INSTALL_URL
+        );
+        SourceMeasurement mirror = measureSource(
+            OpenCodeDownloadSourceSettings.SOURCE_MIRROR,
+            OpenCodeDownloadSourceSettings.MIRROR_INSTALL_URL
+        );
+
+        String selectedSourceId = OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL;
+        boolean success = false;
+        if (official.success && mirror.success) {
+            selectedSourceId = official.score <= mirror.score ? official.sourceId : mirror.sourceId;
+            success = true;
+        } else if (official.success) {
+            selectedSourceId = official.sourceId;
+            success = true;
+        } else if (mirror.success) {
+            selectedSourceId = mirror.sourceId;
+            success = true;
+        }
+
+        String summary;
+        if (success) {
+            summary = getDownloadSourceLabel(selectedSourceId) + " 首包更快，已优先使用。";
+        } else {
+            summary = "探测失败，将在安装时先尝试官方源。";
+        }
+
+        OpenCodeDownloadSourceSettings.setLastProbeResult(this, selectedSourceId, summary, success ? probeAt : 0L);
+
+        StringBuilder log = new StringBuilder();
+        log.append("==> ").append(getString(R.string.download_source_probe_stage_label)).append('\n');
+        log.append("策略：").append(getDownloadSourceModeLabel(OpenCodeDownloadSourceSettings.getMode(this))).append('\n');
+        appendSourceMeasurementLog(log, official);
+        appendSourceMeasurementLog(log, mirror);
+        log.append("结论：").append(summary).append('\n');
+        log.append("__TERMUX_MAINT_DONE__:").append(PROBE_OPENCODE_SOURCE_SLUG).append(':').append(success ? 0 : 1).append('\n');
+
+        try {
+            MaintainerLogStore.writeLog(this, PROBE_OPENCODE_SOURCE_SLUG, log.toString());
+        } catch (IOException e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to write OpenCode source probe log", e);
+        }
+
+        return new OpenCodeSourceProbeResult(success);
+    }
+
+    private void appendSourceMeasurementLog(StringBuilder log, SourceMeasurement measurement) {
+        log.append(getDownloadSourceLabel(measurement.sourceId))
+            .append("：")
+            .append(measurement.url)
+            .append('\n');
+        if (measurement.success) {
+            log.append("HTTP ").append(measurement.httpCode)
+                .append("，首包 ")
+                .append(formatMillis(measurement.startTransferMs))
+                .append("，总耗时 ")
+                .append(formatMillis(measurement.totalMs))
+                .append("，评分 ")
+                .append(String.format(Locale.US, "%.2f", measurement.score))
+                .append('\n');
+        } else {
+            log.append("失败：").append(measurement.errorMessage).append('\n');
+        }
+    }
+
+    private String formatMillis(long millis) {
+        return String.format(Locale.US, "%.2fs", millis / 1000.0d);
+    }
+
+    private SourceMeasurement measureSource(String sourceId, String url) {
+        HttpURLConnection connection = null;
+        long start = System.nanoTime();
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout(SOURCE_PROBE_CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(SOURCE_PROBE_READ_TIMEOUT_MS);
+            connection.setRequestProperty("User-Agent", "OpenHouse-Maintenance/1.0");
+            connection.setRequestMethod("GET");
+
+            int httpCode = connection.getResponseCode();
+            long headerNanos = System.nanoTime();
+            InputStream inputStream = httpCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (inputStream != null) {
+                try (InputStream ignored = inputStream) {
+                    ignored.read();
+                }
+            }
+            long end = System.nanoTime();
+            long startTransferMs = TimeUnit.NANOSECONDS.toMillis(headerNanos - start);
+            long totalMs = Math.max(startTransferMs, TimeUnit.NANOSECONDS.toMillis(end - start));
+            boolean acceptable = httpCode >= 200 && httpCode < 400;
+            double score = startTransferMs * 0.7d + totalMs * 0.3d;
+            if (!acceptable) {
+                return SourceMeasurement.failure(sourceId, url, httpCode, "HTTP " + httpCode);
+            }
+            return SourceMeasurement.success(sourceId, url, httpCode, startTransferMs, totalMs, score);
+        } catch (Exception e) {
+            return SourceMeasurement.failure(sourceId, url, 0, e.getClass().getSimpleName() + ": " + e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private static final class OpenCodeSourceProbeResult {
+        final boolean success;
+
+        OpenCodeSourceProbeResult(boolean success) {
+            this.success = success;
+        }
+    }
+
+    private static final class SourceMeasurement {
+        final String sourceId;
+        final String url;
+        final boolean success;
+        final int httpCode;
+        final long startTransferMs;
+        final long totalMs;
+        final double score;
+        final String errorMessage;
+
+        private SourceMeasurement(String sourceId, String url, boolean success, int httpCode, long startTransferMs, long totalMs, double score, String errorMessage) {
+            this.sourceId = sourceId;
+            this.url = url;
+            this.success = success;
+            this.httpCode = httpCode;
+            this.startTransferMs = startTransferMs;
+            this.totalMs = totalMs;
+            this.score = score;
+            this.errorMessage = errorMessage;
+        }
+
+        static SourceMeasurement success(String sourceId, String url, int httpCode, long startTransferMs, long totalMs, double score) {
+            return new SourceMeasurement(sourceId, url, true, httpCode, startTransferMs, totalMs, score, "");
+        }
+
+        static SourceMeasurement failure(String sourceId, String url, int httpCode, String errorMessage) {
+            return new SourceMeasurement(sourceId, url, false, httpCode, 0L, 0L, Double.MAX_VALUE, errorMessage == null ? "unknown error" : errorMessage);
+        }
+    }
+
+    private static final class OpenCodeInstallSpec {
+        final String primarySourceId;
+        final String primaryLabel;
+        final String primaryUrl;
+        final String secondarySourceId;
+        final String secondaryLabel;
+        final String secondaryUrl;
+        final boolean allowFallback;
+
+        OpenCodeInstallSpec(String primarySourceId, String primaryLabel, String primaryUrl,
+                            String secondarySourceId, String secondaryLabel, String secondaryUrl,
+                            boolean allowFallback) {
+            this.primarySourceId = primarySourceId;
+            this.primaryLabel = primaryLabel;
+            this.primaryUrl = primaryUrl;
+            this.secondarySourceId = secondarySourceId;
+            this.secondaryLabel = secondaryLabel;
+            this.secondaryUrl = secondaryUrl;
+            this.allowFallback = allowFallback;
+        }
+
+        static OpenCodeInstallSpec defaultSpec(MaintenanceCenterActivity activity) {
+            return new OpenCodeInstallSpec(
+                OpenCodeDownloadSourceSettings.SOURCE_OFFICIAL,
+                activity.getString(R.string.download_source_label_official),
+                OpenCodeDownloadSourceSettings.OFFICIAL_INSTALL_URL,
+                OpenCodeDownloadSourceSettings.SOURCE_MIRROR,
+                activity.getString(R.string.download_source_label_mirror),
+                OpenCodeDownloadSourceSettings.MIRROR_INSTALL_URL,
+                false
+            );
+        }
     }
 
     private final class MaintenanceTerminalViewClient extends TermuxTerminalViewClientBase {
@@ -1419,6 +3271,327 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         Boolean opencodeReachable;
     }
 
+    private enum PluginSourceMode {
+        BUNDLED("bundled", R.string.plugin_source_label_bundled),
+        USER("user", R.string.plugin_source_label_user),
+        ONLINE("online", R.string.plugin_source_label_online);
+
+        final String prefValue;
+        final int labelRes;
+
+        PluginSourceMode(String prefValue, int labelRes) {
+            this.prefValue = prefValue;
+            this.labelRes = labelRes;
+        }
+
+        static PluginSourceMode fromPrefValue(String value) {
+            for (PluginSourceMode mode : values()) {
+                if (mode.prefValue.equals(value)) {
+                    return mode;
+                }
+            }
+            return ONLINE;
+        }
+    }
+
+    private static final class MaintenanceManifest {
+        final String sourceUrl;
+        final String sourceName;
+        final String version;
+        final String bootstrapUrl;
+        final BootstrapAction defaultOneClickAction;
+        final Map<String, ManifestStage> stages;
+        final List<StageFlowGroup> stageFlowGroups;
+        final List<DynamicSection> dynamicSections;
+
+        MaintenanceManifest(
+            String sourceUrl,
+            String sourceName,
+            String version,
+            String bootstrapUrl,
+            BootstrapAction defaultOneClickAction,
+            Map<String, ManifestStage> stages,
+            List<StageFlowGroup> stageFlowGroups,
+            List<DynamicSection> dynamicSections
+        ) {
+            this.sourceUrl = sourceUrl;
+            this.sourceName = sourceName;
+            this.version = version;
+            this.bootstrapUrl = bootstrapUrl;
+            this.defaultOneClickAction = defaultOneClickAction;
+            this.stages = stages;
+            this.stageFlowGroups = stageFlowGroups;
+            this.dynamicSections = dynamicSections;
+        }
+
+        static MaintenanceManifest fromJson(String sourceUrl, String json) throws JSONException, IOException {
+            JSONObject root = new JSONObject(json);
+            int schema = root.optInt("schema", 0);
+            if (schema != 1 && schema != 2) {
+                throw new IOException("unsupported schema: " + schema);
+            }
+
+            String bootstrapUrl = root.optString("bootstrapUrl", DEFAULT_BOOTSTRAP_URL).trim();
+            if (!isHttpUrl(bootstrapUrl)) {
+                throw new IOException("invalid bootstrapUrl");
+            }
+
+            String defaultAction = root.optString("defaultOneClickAction", "full").trim();
+            BootstrapAction defaultOneClickAction = BootstrapAction.fromSingle(defaultAction);
+
+            Map<String, ManifestStage> stages = new HashMap<>();
+            JSONArray stageArray = root.optJSONArray("stages");
+            if (stageArray != null) {
+                for (int i = 0; i < stageArray.length(); i++) {
+                    JSONObject stageJson = stageArray.getJSONObject(i);
+                    String id = stageJson.optString("id", "").trim();
+                    if (StageAction.fromSlug(id) == null) {
+                        continue;
+                    }
+
+                    JSONObject actionJson = stageJson.optJSONObject("action");
+                    BootstrapAction action = BootstrapAction.fromJson(actionJson);
+                    stages.put(id, new ManifestStage(
+                        id,
+                        stageJson.optString("title", id).trim(),
+                        stageJson.optString("description", "").trim(),
+                        action
+                    ));
+                }
+            }
+
+            List<StageFlowGroup> stageFlowGroups = new ArrayList<>();
+            JSONArray stageFlowArray = root.optJSONArray("stageFlow");
+            if (stageFlowArray != null) {
+                for (int i = 0; i < stageFlowArray.length(); i++) {
+                    StageFlowGroup group = StageFlowGroup.fromJson(stageFlowArray.optJSONObject(i));
+                    if (group != null) {
+                        stageFlowGroups.add(group);
+                    }
+                }
+            }
+
+            List<DynamicSection> dynamicSections = new ArrayList<>();
+            JSONArray sectionArray = root.optJSONArray("sections");
+            if (sectionArray != null) {
+                for (int i = 0; i < sectionArray.length(); i++) {
+                    DynamicSection section = DynamicSection.fromJson(sectionArray.optJSONObject(i));
+                    if (section != null) {
+                        dynamicSections.add(section);
+                    }
+                }
+            }
+
+            if (stages.isEmpty() && dynamicSections.isEmpty()) {
+                throw new IOException("manifest contains no supported stages or sections");
+            }
+
+            return new MaintenanceManifest(
+                sourceUrl,
+                root.optString("sourceName", "自定义维护源").trim(),
+                root.optString("version", "unknown").trim(),
+                bootstrapUrl,
+                defaultOneClickAction,
+                stages,
+                stageFlowGroups,
+                dynamicSections
+            );
+        }
+    }
+
+    private static final class StageFlowGroup {
+        final String title;
+        final String description;
+        final StageAction[] stageActions;
+
+        StageFlowGroup(String title, String description, StageAction[] stageActions) {
+            this.title = title;
+            this.description = description;
+            this.stageActions = stageActions;
+        }
+
+        static StageFlowGroup fromJson(JSONObject groupJson) {
+            if (groupJson == null) return null;
+            JSONArray stagesArray = groupJson.optJSONArray("stages");
+            if (stagesArray == null || stagesArray.length() == 0) return null;
+
+            List<StageAction> stageActions = new ArrayList<>();
+            for (int i = 0; i < stagesArray.length(); i++) {
+                StageAction stageAction = StageAction.fromSlug(stagesArray.optString(i, "").trim());
+                if (stageAction != null && !stageActions.contains(stageAction)) {
+                    stageActions.add(stageAction);
+                }
+            }
+            if (stageActions.isEmpty()) return null;
+
+            String title = groupJson.optString("title", "").trim();
+            if (title.isEmpty()) {
+                title = stageActions.get(0).slug;
+            }
+            String description = groupJson.optString("description", "").trim();
+            return new StageFlowGroup(
+                title,
+                description,
+                stageActions.toArray(new StageAction[0])
+            );
+        }
+    }
+
+    private static final class DynamicSection {
+        final String id;
+        final String type;
+        final String title;
+        final String description;
+        final List<DynamicItem> items;
+
+        DynamicSection(String id, String type, String title, String description, List<DynamicItem> items) {
+            this.id = id;
+            this.type = type;
+            this.title = title;
+            this.description = description;
+            this.items = items;
+        }
+
+        static DynamicSection fromJson(JSONObject sectionJson) throws IOException {
+            if (sectionJson == null) return null;
+            String type = sectionJson.optString("type", "").trim();
+            if (!"actions".equals(type) && !"setting".equals(type)) {
+                return null;
+            }
+            List<DynamicItem> items = new ArrayList<>();
+            JSONArray itemArray = sectionJson.optJSONArray("items");
+            if (itemArray != null) {
+                for (int i = 0; i < itemArray.length(); i++) {
+                    DynamicItem item = DynamicItem.fromJson(itemArray.optJSONObject(i));
+                    if (item != null) {
+                        items.add(item);
+                    }
+                }
+            }
+            if (items.isEmpty()) return null;
+            String id = sectionJson.optString("id", type).trim();
+            String title = sectionJson.optString("title", id).trim();
+            String description = sectionJson.optString("description", "").trim();
+            return new DynamicSection(id, type, title, description, items);
+        }
+    }
+
+    private static final class DynamicItem {
+        final String id;
+        final String type;
+        final String label;
+        final String description;
+        final BootstrapAction action;
+        final List<DynamicOption> options;
+
+        DynamicItem(String id, String type, String label, String description, BootstrapAction action, List<DynamicOption> options) {
+            this.id = id;
+            this.type = type;
+            this.label = label;
+            this.description = description;
+            this.action = action;
+            this.options = options;
+        }
+
+        static DynamicItem fromJson(JSONObject itemJson) throws IOException {
+            if (itemJson == null) return null;
+            String id = itemJson.optString("id", "dynamic_item").trim();
+            String type = itemJson.optString("type", "button").trim();
+            String label = itemJson.optString("label", id).trim();
+            String description = itemJson.optString("description", "").trim();
+            if ("single_choice".equals(type)) {
+                List<DynamicOption> options = new ArrayList<>();
+                JSONArray optionArray = itemJson.optJSONArray("options");
+                if (optionArray != null) {
+                    for (int i = 0; i < optionArray.length(); i++) {
+                        DynamicOption option = DynamicOption.fromJson(optionArray.optJSONObject(i));
+                        if (option != null) {
+                            options.add(option);
+                        }
+                    }
+                }
+                return options.isEmpty() ? null : new DynamicItem(id, type, label, description, null, options);
+            }
+            JSONObject actionJson = itemJson.optJSONObject("action");
+            BootstrapAction action = actionJson == null ? null : BootstrapAction.fromJson(actionJson);
+            return action == null ? null : new DynamicItem(id, type, label, description, action, new ArrayList<>());
+        }
+    }
+
+    private static final class DynamicOption {
+        final String label;
+        final String description;
+        final BootstrapAction action;
+
+        DynamicOption(String label, String description, BootstrapAction action) {
+            this.label = label;
+            this.description = description;
+            this.action = action;
+        }
+
+        static DynamicOption fromJson(JSONObject optionJson) throws IOException {
+            if (optionJson == null) return null;
+            JSONObject actionJson = optionJson.optJSONObject("action");
+            if (actionJson == null) return null;
+            String label = optionJson.optString("label", "选项").trim();
+            String description = optionJson.optString("description", "").trim();
+            return new DynamicOption(label, description, BootstrapAction.fromJson(actionJson));
+        }
+    }
+
+    private static final class ManifestStage {
+        final String id;
+        final String title;
+        final String description;
+        final BootstrapAction action;
+
+        ManifestStage(String id, String title, String description, BootstrapAction action) {
+            this.id = id;
+            this.title = title;
+            this.description = description;
+            this.action = action;
+        }
+    }
+
+    private static final class BootstrapAction {
+        final String[] args;
+
+        BootstrapAction(String[] args) {
+            this.args = args;
+        }
+
+        static BootstrapAction fromSingle(String arg) throws IOException {
+            return new BootstrapAction(new String[] { arg });
+        }
+
+        static BootstrapAction fromJson(JSONObject actionJson) throws IOException {
+            if (actionJson == null) {
+                throw new IOException("missing action");
+            }
+            String type = actionJson.optString("type", "").trim();
+            if (!"bootstrap".equals(type)) {
+                throw new IOException("unsupported action type: " + type);
+            }
+            JSONArray argsArray = actionJson.optJSONArray("args");
+            if (argsArray == null) {
+                throw new IOException("missing bootstrap args");
+            }
+            String[] args = new String[argsArray.length()];
+            for (int i = 0; i < argsArray.length(); i++) {
+                args[i] = argsArray.optString(i, "");
+            }
+            return new BootstrapAction(args);
+        }
+
+        String toDisplayString() {
+            StringBuilder builder = new StringBuilder("bootstrap");
+            for (String arg : args) {
+                builder.append(' ').append(arg);
+            }
+            return builder.toString();
+        }
+    }
+
     private static final class StagePresentation {
         final StageUiState state;
         final String badge;
@@ -1495,11 +3668,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         }
 
         String buttonText(MaintenanceCenterActivity activity, StageAction stageAction) {
-            return badge + " · " + stageAction.label(activity) + "\n" + detail;
+            return badge + " · " + stageAction.label(activity) + "\n" + activity.getStageDescription(stageAction, detail);
         }
 
         String headline(MaintenanceCenterActivity activity, StageAction stageAction) {
-            return badge + "：" + stageAction.label(activity) + "；" + detail;
+            return badge + "：" + stageAction.label(activity) + "；" + activity.getStageDescription(stageAction, detail);
         }
     }
 
@@ -1509,7 +3682,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         INSTALL_UBUNTU("install_ubuntu", "install-ubuntu.sh"),
         SYNC_OFFICIAL_DOCS("sync_official_docs", "sync-official-docs.sh"),
         UBUNTU_PACKAGES("ubuntu_packages", "update-ubuntu-packages.sh"),
+        CONFIGURE_ENTRY_UBUNTU("entry_ubuntu", "configure-entry-ubuntu.sh"),
         INSTALL_OPENCODE("install_opencode", "install-opencode.sh"),
+        INSTALL_CODEX("install_codex", "install-codex.sh"),
+        INSTALL_CLAUDE_CODE("install_claude_code", "install-claude-code.sh"),
         INSTALL_SYSTEM_ENV_SKILL("install_system_env_skill", "install-system-environment-skill.sh"),
         START("start", "start-opencode.sh"),
         RESTART("restart", "restart-opencode.sh");
@@ -1523,32 +3699,15 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         }
 
         String label(MaintenanceCenterActivity activity) {
-            switch (this) {
-                case PREPARE:
-                    return activity.getString(R.string.button_prepare);
-                case TERMUX_PACKAGES:
-                    return activity.getString(R.string.button_termux_packages);
-                case INSTALL_UBUNTU:
-                    return activity.getString(R.string.button_install_ubuntu);
-                case SYNC_OFFICIAL_DOCS:
-                    return activity.getString(R.string.button_sync_official_docs);
-                case UBUNTU_PACKAGES:
-                    return activity.getString(R.string.button_ubuntu_packages);
-                case INSTALL_OPENCODE:
-                    return activity.getString(R.string.button_install_opencode);
-                case INSTALL_SYSTEM_ENV_SKILL:
-                    return activity.getString(R.string.button_install_system_env_skill);
-                case START:
-                    return activity.getString(R.string.button_start);
-                case RESTART:
-                default:
-                    return activity.getString(R.string.button_restart);
-            }
+            return activity.getStageTitle(this);
         }
 
         boolean shouldRefreshBeforeRun() {
             return this == SYNC_OFFICIAL_DOCS
                 || this == INSTALL_OPENCODE
+                || this == CONFIGURE_ENTRY_UBUNTU
+                || this == INSTALL_CODEX
+                || this == INSTALL_CLAUDE_CODE
                 || this == INSTALL_SYSTEM_ENV_SKILL
                 || this == START
                 || this == RESTART;

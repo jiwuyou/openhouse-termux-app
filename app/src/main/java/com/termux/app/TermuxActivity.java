@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -17,6 +18,7 @@ import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -28,6 +30,7 @@ import android.widget.Toast;
 
 import com.termux.R;
 import com.termux.app.OpenCodeCdpBridge;
+import com.termux.app.OpenHouseAgreement;
 import com.termux.app.OpenCodeSettings;
 import com.termux.app.api.file.FileReceiverActivity;
 import com.termux.app.terminal.TermuxActivityRootView;
@@ -43,6 +46,7 @@ import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
 import com.termux.app.activities.HelpActivity;
 import com.termux.app.activities.MaintenanceCenterActivity;
+import com.termux.app.activities.OpenHouseAgreementActivity;
 import com.termux.app.activities.SettingsActivity;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
@@ -202,6 +206,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private static final String ARG_ACTIVITY_RECREATED = "activity_recreated";
 
     private static final String LOG_TAG = "TermuxActivity";
+    private static final String PREF_QUICK_BUTTONS = "openhouse_quick_buttons";
+    private static final String PREF_QUICK_BUTTONS_VISIBLE = "quick_buttons_visible";
+    private static final String PREF_QUICK_HANDLE_LEFT = "quick_handle_left";
+    private static final String PREF_QUICK_HANDLE_TOP = "quick_handle_top";
     private final ExecutorService mOpenCodeLaunchExecutor = Executors.newSingleThreadExecutor();
     private volatile boolean mOpenCodeLaunchInFlight = false;
 
@@ -265,6 +273,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         setOpenCodeQuickLaunchButtonView();
 
         setMaintenanceCenterButtonView();
+
+        setQuickButtonsVisibilityHandleView();
 
         registerForContextMenu(mTerminalView);
 
@@ -612,18 +622,131 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void setMaintenanceCenterButtonView() {
-        findViewById(R.id.maintenance_center_button).setOnClickListener(v ->
-            ActivityUtils.startActivity(this, new Intent(this, MaintenanceCenterActivity.class))
-        );
+        findViewById(R.id.maintenance_center_button).setOnClickListener(v -> openMaintenanceCenterEntry());
     }
 
     private void setOpenCodeQuickLaunchButtonView() {
         View button = findViewById(R.id.opencode_quick_launch_button);
         button.setOnClickListener(v -> launchOpenCodeOnDefaultPort());
         button.setOnLongClickListener(v -> {
-            ActivityUtils.startActivity(this, new Intent(this, MaintenanceCenterActivity.class));
+            openMaintenanceCenterEntry();
             return true;
         });
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void setQuickButtonsVisibilityHandleView() {
+        View handle = findViewById(R.id.quick_buttons_visibility_handle);
+        View maintenanceButton = findViewById(R.id.maintenance_center_button);
+        View openCodeButton = findViewById(R.id.opencode_quick_launch_button);
+        SharedPreferences preferences = getSharedPreferences(PREF_QUICK_BUTTONS, MODE_PRIVATE);
+
+        applyQuickButtonsVisibility(preferences.getBoolean(PREF_QUICK_BUTTONS_VISIBLE, true));
+        restoreQuickButtonsHandlePosition(handle, preferences);
+
+        handle.setOnClickListener(v -> {
+            boolean visible = maintenanceButton.getVisibility() != View.VISIBLE || openCodeButton.getVisibility() != View.VISIBLE;
+            preferences.edit().putBoolean(PREF_QUICK_BUTTONS_VISIBLE, visible).apply();
+            applyQuickButtonsVisibility(visible);
+        });
+
+        final float density = getResources().getDisplayMetrics().density;
+        final int touchSlop = Math.max(8, (int) (10 * density));
+        final float[] downRawX = new float[1];
+        final float[] downRawY = new float[1];
+        final int[] startLeft = new int[1];
+        final int[] startTop = new int[1];
+        final boolean[] dragging = new boolean[1];
+
+        handle.setOnTouchListener((view, event) -> {
+            View parent = (View) view.getParent();
+            if (parent == null) return false;
+
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downRawX[0] = event.getRawX();
+                    downRawY[0] = event.getRawY();
+                    startLeft[0] = view.getLeft();
+                    startTop[0] = view.getTop();
+                    dragging[0] = false;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    int deltaX = Math.round(event.getRawX() - downRawX[0]);
+                    int deltaY = Math.round(event.getRawY() - downRawY[0]);
+                    if (!dragging[0] && Math.abs(deltaX) < touchSlop && Math.abs(deltaY) < touchSlop) {
+                        return false;
+                    }
+                    dragging[0] = true;
+                    moveQuickButtonsHandle(view, parent, startLeft[0] + deltaX, startTop[0] + deltaY);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (dragging[0]) {
+                        preferences.edit()
+                            .putInt(PREF_QUICK_HANDLE_LEFT, view.getLeft())
+                            .putInt(PREF_QUICK_HANDLE_TOP, view.getTop())
+                            .apply();
+                        return true;
+                    }
+                    view.performClick();
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private void applyQuickButtonsVisibility(boolean visible) {
+        View maintenanceButton = findViewById(R.id.maintenance_center_button);
+        View openCodeButton = findViewById(R.id.opencode_quick_launch_button);
+        int visibility = visible ? View.VISIBLE : View.INVISIBLE;
+        maintenanceButton.setVisibility(visibility);
+        openCodeButton.setVisibility(visibility);
+    }
+
+    private void restoreQuickButtonsHandlePosition(View handle, SharedPreferences preferences) {
+        if (!preferences.contains(PREF_QUICK_HANDLE_LEFT) || !preferences.contains(PREF_QUICK_HANDLE_TOP)) {
+            return;
+        }
+
+        handle.post(() -> {
+            View parent = (View) handle.getParent();
+            if (parent == null) return;
+            moveQuickButtonsHandle(
+                handle,
+                parent,
+                preferences.getInt(PREF_QUICK_HANDLE_LEFT, handle.getLeft()),
+                preferences.getInt(PREF_QUICK_HANDLE_TOP, handle.getTop())
+            );
+        });
+    }
+
+    private void moveQuickButtonsHandle(View handle, View parent, int requestedLeft, int requestedTop) {
+        RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) handle.getLayoutParams();
+        params.removeRule(RelativeLayout.ALIGN_PARENT_END);
+        params.removeRule(RelativeLayout.ABOVE);
+
+        int maxLeft = Math.max(0, parent.getWidth() - handle.getWidth());
+        int maxTop = Math.max(0, parent.getHeight() - handle.getHeight());
+        int left = Math.max(0, Math.min(requestedLeft, maxLeft));
+        int top = Math.max(0, Math.min(requestedTop, maxTop));
+
+        params.leftMargin = left;
+        params.topMargin = top;
+        params.rightMargin = 0;
+        params.bottomMargin = 0;
+        handle.setLayoutParams(params);
+    }
+
+    private void openMaintenanceCenterEntry() {
+        if (OpenHouseAgreement.hasAcceptedCurrentVersion(this)) {
+            ActivityUtils.startActivity(this, new Intent(this, MaintenanceCenterActivity.class));
+            return;
+        }
+
+        Intent intent = new Intent(this, OpenHouseAgreementActivity.class);
+        intent.putExtra(OpenHouseAgreementActivity.EXTRA_OPEN_MAINTENANCE_AFTER_ACCEPT, true);
+        ActivityUtils.startActivity(this, intent);
     }
 
     private void launchOpenCodeOnDefaultPort() {
