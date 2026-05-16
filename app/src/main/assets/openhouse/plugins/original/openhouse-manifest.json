@@ -1,31 +1,41 @@
 {
   "schema": 1,
-  "version": "2026.04.29.1",
+  "version": "2026.05.11.1",
   "title": "OpenHouse 维护器",
   "sourceName": "OpenHouse APK 原始插件",
-  "updatedAt": "2026-04-29",
+  "updatedAt": "2026-05-11",
   "bootstrapUrl": "https://raw.githubusercontent.com/jiwuyou/openhouse-bootstrap/main/bootstrap.sh",
   "defaultOneClickAction": "full",
   "stageFlow": [
     {
       "title": "准备手机环境",
-      "description": "准备 Termux、基础包、Ubuntu 和产品路径。",
+      "description": "准备本地目录、Termux 基础包、Ubuntu rootfs 和内置官方文档。",
       "stages": ["prepare", "termux_packages", "install_ubuntu", "sync_official_docs"]
     },
     {
-      "title": "更新 Ubuntu 依赖",
-      "description": "安装 Ubuntu 内 curl、git、证书、ripgrep、unzip 等基础工具。",
+      "title": "更新 Ubuntu 基础包",
+      "description": "安装 Ubuntu 内 curl、git、证书、procps、ripgrep、unzip 等基础工具。",
       "stages": ["ubuntu_packages"]
     },
     {
-      "title": "设置启动入口",
-      "description": "打开 Termux 后直接进入 Ubuntu，放在安装 OpenCode 之前执行。",
-      "stages": ["entry_ubuntu"]
+      "title": "安装 Agent 运行时",
+      "description": "先安装 OpenCode，再准备 Node.js，随后安装 Codex、Claude Code 和 OpenCode skills。",
+      "stages": ["install_opencode", "install_nodejs", "install_codex", "install_claude_code", "install_system_env_skill"]
     },
     {
-      "title": "安装并启动 AI 工具",
-      "description": "安装 OpenCode、Codex、Claude Code，写入 Agent 技能，并启动 4096 端口。",
-      "stages": ["install_opencode", "install_codex", "install_claude_code", "install_system_env_skill", "start"]
+      "title": "安装 OpenHouse 必要组件",
+      "description": "先下载 OpenHouse bootstrap，再按运行时依赖顺序安装 service-manager、cc-connect、cc-proxy、openhouse-key-tool 和 smallphone。",
+      "stages": ["download_bootstrap", "install_service_manager", "install_cc_connect", "install_cc_proxy", "install_openhouse_key_tool", "install_smallphone"]
+    },
+    {
+      "title": "可选文档资源",
+      "description": "guide/docs 默认跳过，只在明确需要构建或发布文档资源时执行。",
+      "stages": ["sync_guide_site", "install_docs_deps"]
+    },
+    {
+      "title": "启动 OpenCode",
+      "description": "完成必要组件后启动 OpenCode 网页服务。",
+      "stages": ["start"]
     }
   ],
   "sections": [
@@ -92,33 +102,111 @@
   "stages": [
     {
       "id": "prepare",
-      "title": "准备 Termux 环境",
-      "description": "创建产品文档和工作区，安装 curl、git、proot-distro，并写入 Termux 配置。",
+      "title": "准备本地目录",
+      "description": "创建 product-docs、workspace 和 Termux 配置；不联网。",
       "action": { "type": "bootstrap", "args": ["prepare"] }
     },
     {
       "id": "termux_packages",
-      "title": "检查 Termux 基础包",
-      "description": "确保 proot-distro、curl、证书和 git 可用。",
+      "title": "下载 Termux 基础包",
+      "description": "pkg 安装 proot-distro、curl、openssl、ca-certificates、git。",
       "action": { "type": "bootstrap", "args": ["prepare"] }
     },
     {
       "id": "install_ubuntu",
-      "title": "安装 Ubuntu",
-      "description": "通过 proot-distro 安装 Ubuntu rootfs，可重复执行。",
+      "title": "下载 Ubuntu rootfs",
+      "description": "proot-distro install ubuntu。",
       "action": { "type": "bootstrap", "args": ["ubuntu"] }
     },
     {
       "id": "sync_official_docs",
-      "title": "写入产品路径",
-      "description": "保持产品文档和工作区路径可被 Ubuntu 内 Agent 识别。",
+      "title": "同步内置官方文档",
+      "description": "从 APK/维护源复制到 product-docs；通常不联网。",
       "action": { "type": "bootstrap", "args": ["prepare"] }
     },
     {
       "id": "ubuntu_packages",
-      "title": "更新 Ubuntu 软件包",
-      "description": "在 Ubuntu 内安装 curl、git、证书、procps、ripgrep 和 unzip。",
+      "title": "下载 Ubuntu 基础包",
+      "description": "apt 安装 curl、ca-certificates、git、procps、ripgrep、unzip。",
       "action": { "type": "bootstrap", "args": ["ubuntu-packages"] }
+    },
+    {
+      "id": "install_opencode",
+      "title": "下载 OpenCode",
+      "description": "从 OpenCode 安装源下载并安装 opencode。",
+      "action": { "type": "bootstrap", "args": ["opencode"] }
+    },
+    {
+      "id": "install_nodejs",
+      "title": "下载 Node.js",
+      "description": "在 Ubuntu 内安装或检查 Node.js 与 npm，供 Codex 和 Claude Code 使用。",
+      "action": { "type": "bootstrap", "args": ["codex"] }
+    },
+    {
+      "id": "install_codex",
+      "title": "下载 Codex CLI",
+      "description": "npm 安装 @openai/codex。",
+      "action": { "type": "bootstrap", "args": ["codex"] }
+    },
+    {
+      "id": "install_claude_code",
+      "title": "下载 Claude Code",
+      "description": "npm 安装 @anthropic-ai/claude-code。",
+      "action": { "type": "bootstrap", "args": ["claude-code"] }
+    },
+    {
+      "id": "install_system_env_skill",
+      "title": "写入 OpenCode skills",
+      "description": "复制系统环境和 Agent 安装说明；不联网。",
+      "action": { "type": "bootstrap", "args": ["skills"] }
+    },
+    {
+      "id": "download_bootstrap",
+      "title": "下载 OpenHouse bootstrap",
+      "description": "下载 bootstrap.sh、阶段脚本和 skills。",
+      "action": { "type": "bootstrap", "args": ["check"] }
+    },
+    {
+      "id": "install_service_manager",
+      "title": "下载 service-manager",
+      "description": "拉取仓库，优先安装 GitHub release tarball。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "install_cc_connect",
+      "title": "下载 cc-connect",
+      "description": "拉取仓库，优先 npm 全局安装或使用仓库二进制。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "install_cc_proxy",
+      "title": "下载 cc-proxy",
+      "description": "拉取仓库，默认 npm 安装 ccproxy-cli。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "install_openhouse_key_tool",
+      "title": "下载 openhouse-key-tool",
+      "description": "拉取仓库，pip 安装 Python CLI。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "install_smallphone",
+      "title": "下载 smallphone",
+      "description": "拉取仓库，npm/pnpm 安装产品应用和独立应用依赖。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "sync_guide_site",
+      "title": "可选：同步 guide site",
+      "description": "默认跳过；需要 OPENHOUSE_INSTALL_DOC_COMPONENTS=1 或指定同步目标。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
+    },
+    {
+      "id": "install_docs_deps",
+      "title": "可选：下载 docs 构建依赖",
+      "description": "默认跳过；仅构建/发布文档站时需要。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
     },
     {
       "id": "entry_ubuntu",
@@ -127,39 +215,21 @@
       "action": { "type": "bootstrap", "args": ["entry-ubuntu"] }
     },
     {
-      "id": "install_opencode",
-      "title": "安装 OpenCode",
-      "description": "安装或检查 OpenCode，并持久写入 Agent 工具 PATH。",
-      "action": { "type": "bootstrap", "args": ["opencode"] }
-    },
-    {
-      "id": "install_codex",
-      "title": "安装 Codex",
-      "description": "在 Ubuntu 内通过 npm 安装 OpenAI Codex CLI。",
-      "action": { "type": "bootstrap", "args": ["codex"] }
-    },
-    {
-      "id": "install_claude_code",
-      "title": "安装 Claude Code",
-      "description": "在 Ubuntu 内通过 npm 安装 Anthropic Claude Code。",
-      "action": { "type": "bootstrap", "args": ["claude-code"] }
-    },
-    {
-      "id": "install_system_env_skill",
-      "title": "写入 Agent 技能",
-      "description": "写入系统环境说明，以及 OpenCode、Codex、Claude Code 的安装登录配置说明。",
-      "action": { "type": "bootstrap", "args": ["skills"] }
+      "id": "install_required_components",
+      "title": "安装 OpenHouse 必要组件",
+      "description": "兼容旧入口：调用 bootstrap 的 required-components 链路执行必要组件安装。",
+      "action": { "type": "bootstrap", "args": ["required-components"] }
     },
     {
       "id": "start",
       "title": "启动 OpenCode",
-      "description": "按默认端口启动 OpenCode Web，默认绑定 127.0.0.1。",
+      "description": "必要下载完成后打开浏览器地址。",
       "action": { "type": "bootstrap", "args": ["start"] }
     },
     {
       "id": "restart",
       "title": "重启 OpenCode",
-      "description": "重新执行启动动作，用于恢复 OpenCode Web 服务。",
+      "description": "用于安装完成后的修复或换端口重启。",
       "action": { "type": "bootstrap", "args": ["start"] }
     }
   ]

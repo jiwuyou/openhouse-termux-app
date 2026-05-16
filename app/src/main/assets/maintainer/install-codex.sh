@@ -1,7 +1,7 @@
 require_ubuntu
 
 log "正在 Ubuntu 内安装或检查 Codex CLI。"
-run_logged proot-distro login ubuntu -- bash -lc 'set -euo pipefail
+run_ubuntu_logged bash -lc 'set -euo pipefail
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 if command -v codex >/dev/null 2>&1; then
   echo "Codex CLI 已安装：$(command -v codex)"

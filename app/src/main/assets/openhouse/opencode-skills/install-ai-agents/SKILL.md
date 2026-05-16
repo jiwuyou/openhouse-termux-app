@@ -43,7 +43,7 @@ If Node is missing or too old, use your project's OpenClaw/Node installation pat
 Official install:
 
 ```bash
-curl -fsSL https://opencode.ai/install | bash
+curl -fsSL https://raw.githubusercontent.com/opencode-ai/opencode/refs/heads/main/install | VERSION=0.0.55 bash
 ```
 
 Fallback npm install:

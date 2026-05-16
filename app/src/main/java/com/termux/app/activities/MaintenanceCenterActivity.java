@@ -107,9 +107,18 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         StageAction.UBUNTU_PACKAGES,
         StageAction.CONFIGURE_ENTRY_UBUNTU,
         StageAction.INSTALL_OPENCODE,
+        StageAction.INSTALL_NODEJS,
         StageAction.INSTALL_CODEX,
         StageAction.INSTALL_CLAUDE_CODE,
         StageAction.INSTALL_SYSTEM_ENV_SKILL,
+        StageAction.DOWNLOAD_BOOTSTRAP,
+        StageAction.INSTALL_SERVICE_MANAGER,
+        StageAction.INSTALL_CC_CONNECT,
+        StageAction.INSTALL_CC_PROXY,
+        StageAction.INSTALL_OPENHOUSE_KEY_TOOL,
+        StageAction.INSTALL_SMALLPHONE,
+        StageAction.SYNC_GUIDE_SITE,
+        StageAction.INSTALL_DOCS_DEPS,
         StageAction.START
     };
 
@@ -282,9 +291,19 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         bindStageButton(StageAction.SYNC_OFFICIAL_DOCS, R.id.buttonSyncOfficialDocs);
         bindStageButton(StageAction.UBUNTU_PACKAGES, R.id.buttonUbuntuPackages);
         bindStageButton(StageAction.INSTALL_OPENCODE, R.id.buttonInstallOpenCode);
+        bindStageButton(StageAction.INSTALL_NODEJS, R.id.buttonInstallNodeJs);
         bindStageButton(StageAction.INSTALL_CODEX, R.id.buttonInstallCodex);
         bindStageButton(StageAction.INSTALL_CLAUDE_CODE, R.id.buttonInstallClaudeCode);
         bindStageButton(StageAction.INSTALL_SYSTEM_ENV_SKILL, R.id.buttonInstallSystemEnvSkill);
+        bindStageButton(StageAction.DOWNLOAD_BOOTSTRAP, R.id.buttonInstallOpenHouseBootstrap);
+        bindStageButton(StageAction.INSTALL_REQUIRED_COMPONENTS, R.id.buttonInstallRequiredComponents);
+        bindStageButton(StageAction.INSTALL_SERVICE_MANAGER, R.id.buttonInstallServiceManager);
+        bindStageButton(StageAction.INSTALL_CC_CONNECT, R.id.buttonInstallCcConnect);
+        bindStageButton(StageAction.INSTALL_CC_PROXY, R.id.buttonInstallCcProxy);
+        bindStageButton(StageAction.INSTALL_OPENHOUSE_KEY_TOOL, R.id.buttonInstallOpenHouseKeyTool);
+        bindStageButton(StageAction.INSTALL_SMALLPHONE, R.id.buttonInstallSmallPhone);
+        bindStageButton(StageAction.SYNC_GUIDE_SITE, R.id.buttonSyncGuideSite);
+        bindStageButton(StageAction.INSTALL_DOCS_DEPS, R.id.buttonInstallDocsDeps);
         bindStageButton(StageAction.START, R.id.buttonStart);
         bindStageButton(StageAction.RESTART, R.id.buttonRestart);
         customPortButton.setOnClickListener(v -> showCustomPortDialog());
@@ -414,7 +433,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
     private PluginSourceMode getPluginSourceMode() {
         return PluginSourceMode.fromPrefValue(
-            maintenancePreferences.getString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.ONLINE.prefValue)
+            maintenancePreferences.getString(PREF_MAINTENANCE_PLUGIN_MODE, PluginSourceMode.BUNDLED.prefValue)
         );
     }
 
@@ -1011,6 +1030,11 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             new StageAction[] { StageAction.INSTALL_OPENCODE }
         ));
         groups.add(new StageFlowGroup(
+            getString(R.string.button_install_nodejs),
+            getString(R.string.stage_detail_install_nodejs_ready),
+            new StageAction[] { StageAction.INSTALL_NODEJS }
+        ));
+        groups.add(new StageFlowGroup(
             getString(R.string.one_click_auto_codex_title),
             getString(R.string.one_click_auto_codex_detail),
             new StageAction[] { StageAction.INSTALL_CODEX }
@@ -1024,6 +1048,26 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             getString(R.string.one_click_auto_skill_title),
             getString(R.string.one_click_auto_skill_detail),
             new StageAction[] { StageAction.INSTALL_SYSTEM_ENV_SKILL }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.one_click_auto_required_components_title),
+            getString(R.string.one_click_auto_required_components_detail),
+            new StageAction[] {
+                StageAction.DOWNLOAD_BOOTSTRAP,
+                StageAction.INSTALL_SERVICE_MANAGER,
+                StageAction.INSTALL_CC_CONNECT,
+                StageAction.INSTALL_CC_PROXY,
+                StageAction.INSTALL_OPENHOUSE_KEY_TOOL,
+                StageAction.INSTALL_SMALLPHONE
+            }
+        ));
+        groups.add(new StageFlowGroup(
+            getString(R.string.button_sync_guide_site),
+            getString(R.string.button_install_docs_deps),
+            new StageAction[] {
+                StageAction.SYNC_GUIDE_SITE,
+                StageAction.INSTALL_DOCS_DEPS
+            }
         ));
         groups.add(new StageFlowGroup(
             getString(R.string.one_click_auto_start_title),
@@ -1225,12 +1269,32 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
                 return getString(R.string.button_configure_entry_ubuntu);
             case INSTALL_OPENCODE:
                 return getString(R.string.button_install_opencode);
+            case INSTALL_NODEJS:
+                return getString(R.string.button_install_nodejs);
             case INSTALL_CODEX:
                 return getString(R.string.button_install_codex);
             case INSTALL_CLAUDE_CODE:
                 return getString(R.string.button_install_claude_code);
             case INSTALL_SYSTEM_ENV_SKILL:
                 return getString(R.string.button_install_system_env_skill);
+            case DOWNLOAD_BOOTSTRAP:
+                return getString(R.string.button_install_openhouse_bootstrap);
+            case INSTALL_REQUIRED_COMPONENTS:
+                return getString(R.string.button_install_required_components);
+            case INSTALL_SERVICE_MANAGER:
+                return getString(R.string.button_install_service_manager);
+            case INSTALL_CC_CONNECT:
+                return getString(R.string.button_install_cc_connect);
+            case INSTALL_CC_PROXY:
+                return getString(R.string.button_install_cc_proxy);
+            case INSTALL_OPENHOUSE_KEY_TOOL:
+                return getString(R.string.button_install_openhouse_key_tool);
+            case INSTALL_SMALLPHONE:
+                return getString(R.string.button_install_smallphone);
+            case SYNC_GUIDE_SITE:
+                return getString(R.string.button_sync_guide_site);
+            case INSTALL_DOCS_DEPS:
+                return getString(R.string.button_install_docs_deps);
             case START:
                 return getString(R.string.button_start);
             case RESTART:
@@ -1425,7 +1489,10 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         OpenCodeInstallSpec installSpec = stageAction == StageAction.INSTALL_OPENCODE
             ? resolveOpenCodeInstallSpec()
             : OpenCodeInstallSpec.defaultSpec(this);
-        return buildAssetExecutionCommand(stageAction.label(this), stageAction.slug, stageAction.assetName, getDefaultOpenCodePort(), installSpec);
+        if (stageAction == StageAction.INSTALL_NODEJS) {
+            return buildNodeJsExecutionCommand(stageAction.label(this), stageAction.slug);
+        }
+        return buildAssetExecutionCommand(stageAction, stageAction.label(this), stageAction.slug, stageAction.assetName, getDefaultOpenCodePort(), installSpec);
     }
 
     private void runRemoteBootstrapAction(String stageSlug, String stageLabel, BootstrapAction action) {
@@ -1646,15 +1713,71 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         scriptBody.append("download_file \"$BOOTSTRAP_URL\" \"$HOME/openhouse-bootstrap.sh\"\n");
         scriptBody.append("chmod +x \"$HOME/openhouse-bootstrap.sh\"\n");
         scriptBody.append("log \"正在执行远程维护动作：").append(action.toDisplayString()).append("\"\n");
+        StageAction bootstrapStageAction = StageAction.fromSlug(stageSlug);
         scriptBody.append("run_logged env OPENHOUSE_PORT=").append(shellQuote(Integer.toString(getDefaultOpenCodePort())))
-            .append(" OPENHOUSE_WEB_PORT=").append(shellQuote(Integer.toString(getLocalMaintenanceWebPort())))
-            .append(" bash \"$HOME/openhouse-bootstrap.sh\"");
+            .append(" OPENHOUSE_WEB_PORT=").append(shellQuote(Integer.toString(getLocalMaintenanceWebPort())));
+        if (bootstrapStageAction != null && bootstrapStageAction.requiredComponentTargets != null) {
+            scriptBody.append(" OPENHOUSE_REQUIRED_COMPONENT_TARGETS=")
+                .append(shellQuote(bootstrapStageAction.requiredComponentTargets));
+        }
+        scriptBody.append(" bash \"$HOME/openhouse-bootstrap.sh\"");
         for (String arg : action.args) {
             scriptBody.append(' ').append(shellQuote(arg));
         }
         scriptBody.append('\n');
 
         String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody.toString());
+        String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("mkdir -p ").append(shellQuote(TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs")).append('\n');
+        builder.append("cat > ").append(shellQuote(tempScriptPath)).append(" <<'__TERMUX_MAINT__'\n");
+        builder.append(wrapperScript);
+        if (!wrapperScript.endsWith("\n")) {
+            builder.append('\n');
+        }
+        builder.append("__TERMUX_MAINT__\n");
+        builder.append("/data/data/com.termux/files/usr/bin/bash ").append(shellQuote(tempScriptPath)).append('\n');
+        builder.append("rm -f ").append(shellQuote(tempScriptPath)).append('\n');
+        return builder.toString();
+    }
+
+    private String buildNodeJsExecutionCommand(String stageLabel, String stageSlug) {
+        String scriptBody =
+            "require_ubuntu\n"
+                + "log \"正在 Ubuntu 内安装或检查 Node.js 与 npm。\"\n"
+                + "run_ubuntu_logged bash -s <<'__OPENHOUSE_NODEJS__'\n"
+                + "set -euo pipefail\n"
+                + "export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"\n"
+                + "if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then\n"
+                + "  echo \"Node.js 已安装：$(command -v node)\"\n"
+                + "  node --version || true\n"
+                + "  npm --version || true\n"
+                + "  exit 0\n"
+                + "fi\n"
+                + "export DEBIAN_FRONTEND=noninteractive\n"
+                + "apt update\n"
+                + "apt install -y nodejs npm\n"
+                + "mkdir -p \"$HOME/.npm-global/bin\"\n"
+                + "npm config set prefix \"$HOME/.npm-global\"\n"
+                + "export PATH=\"$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"\n"
+                + "command -v node\n"
+                + "command -v npm\n"
+                + "node --version || true\n"
+                + "npm --version || true\n"
+                + "PATH_LINE=\"export PATH=\\\"\\$HOME/.opencode/bin:\\$HOME/.local/node/bin:\\$HOME/.local/bin:\\$HOME/.npm-global/bin:\\$PATH\\\"\"\n"
+                + "for PROFILE_FILE in \"$HOME/.profile\" \"$HOME/.bashrc\"; do\n"
+                + "  touch \"$PROFILE_FILE\"\n"
+                + "  if ! grep -Fq \"$PATH_LINE\" \"$PROFILE_FILE\"; then\n"
+                + "    {\n"
+                + "      printf \"\\n# OpenHouse agent tools\\n\"\n"
+                + "      printf \"%s\\n\" \"$PATH_LINE\"\n"
+                + "    } >> \"$PROFILE_FILE\"\n"
+                + "  fi\n"
+                + "done\n"
+                + "__OPENHOUSE_NODEJS__\n"
+                + "log \"Node.js 检查阶段已完成。\"\n";
+        String wrapperScript = buildWrapperScript(stageLabel, stageSlug, scriptBody);
         String tempScriptPath = TermuxConstants.TERMUX_HOME_DIR_PATH + "/.maintainer-logs/run-" + stageSlug + ".sh";
 
         StringBuilder builder = new StringBuilder();
@@ -1714,9 +1837,12 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             .show();
     }
 
-    private String buildAssetExecutionCommand(String stageLabel, String stageSlug, String assetName, int port, OpenCodeInstallSpec installSpec) throws IOException {
+    private String buildAssetExecutionCommand(StageAction stageAction, String stageLabel, String stageSlug, String assetName, int port, OpenCodeInstallSpec installSpec) throws IOException {
         String scriptBody = loadAsset(assetName)
             .replace("__PORT__", Integer.toString(port))
+            .replace("__BOOTSTRAP_URL__", getBootstrapUrlForLocalMaintenance())
+            .replace("__REQUIRED_COMPONENT_TARGETS__", stageAction.requiredComponentTargets == null ? "" : stageAction.requiredComponentTargets)
+            .replace("__LOCAL_MAINTENANCE_WEB_PORT__", Integer.toString(getLocalMaintenanceWebPort()))
             .replace("__BUNDLED_OFFICIAL_DOCS__", buildBundledAssetWriteSnippet(OFFICIAL_DOCS_ASSET_DIR, "OFFICIAL_DOC_DIR"))
             .replace("__BUNDLED_SYSTEM_ENV_SKILL__", buildBundledAssetWriteSnippet(SYSTEM_ENV_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"))
             .replace("__BUNDLED_OPENCODE_AGENT_INSTALL_SKILL__", buildBundledAssetWriteSnippet(OPENCODE_AGENT_INSTALL_SKILL_ASSET_DIR, "SKILL_TARGET_DIR"))
@@ -1866,6 +1992,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
         try {
             String command = buildAssetExecutionCommand(
+                StageAction.START,
                 currentStageLabel,
                 currentStageSlug,
                 "start-opencode.sh",
@@ -1902,10 +2029,16 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         builder.append(": > \"$LOG_FILE\"\n");
         builder.append("log(){ printf '%s\\n' \"$1\" | tee -a \"$LOG_FILE\"; }\n");
         builder.append("run_logged(){ local status=0; set +e; \"$@\" 2>&1 | tee -a \"$LOG_FILE\"; status=${PIPESTATUS[0]}; set -e; return \"$status\"; }\n");
-        builder.append("require_ubuntu(){ if ! command -v proot-distro >/dev/null 2>&1; then log '缺少 proot-distro，请先执行“更新 Termux 软件包”。'; exit 2; fi; if ! proot-distro login ubuntu -- true >/dev/null 2>&1; then log 'Ubuntu 尚未安装，请先执行“下载 Ubuntu”。'; exit 3; fi; }\n");
+        builder.append("is_termux(){ [ -n \"${PREFIX:-}\" ] && [ -d \"${PREFIX:-}/bin\" ] && [ -d \"/data/data/com.termux/files\" ]; }\n");
+        builder.append("is_current_ubuntu(){ [ -r /etc/os-release ] && grep -qi 'ubuntu' /etc/os-release; }\n");
+        builder.append("detect_openhouse_runtime(){ if is_current_ubuntu; then printf 'ubuntu'; return 0; fi; if [ -x \"${PREFIX:-/data/data/com.termux/files/usr}/bin/openhouse-env-probe\" ]; then \"${PREFIX:-/data/data/com.termux/files/usr}/bin/openhouse-env-probe\" 2>/dev/null | awk -F= '$1==\"OPENHOUSE_RUNTIME\"{print $2; found=1} END{if(!found) exit 1}' && return 0; fi; if is_termux; then printf 'termux'; return 0; fi; printf 'unknown'; }\n");
+        builder.append("run_environment_probe(){ local probe=\"${PREFIX:-/data/data/com.termux/files/usr}/bin/openhouse-env-probe\"; if [ -x \"$probe\" ]; then log \"正在执行环境探测命令：$probe\"; run_logged \"$probe\" || true; else log \"环境探测命令不存在，使用内置探测逻辑。\"; fi; CURRENT_RUNTIME=\"$(detect_openhouse_runtime)\"; log \"当前运行环境：$CURRENT_RUNTIME\"; }\n");
+        builder.append("run_ubuntu_logged(){ if is_current_ubuntu; then run_logged \"$@\"; else run_logged proot-distro login ubuntu -- \"$@\"; fi; }\n");
+        builder.append("require_ubuntu(){ if is_current_ubuntu; then return 0; fi; if ! command -v proot-distro >/dev/null 2>&1; then log '缺少 proot-distro，请先执行“更新 Termux 软件包”。'; exit 2; fi; if ! proot-distro login ubuntu -- true >/dev/null 2>&1; then log 'Ubuntu 尚未安装，请先执行“下载 Ubuntu”。'; exit 3; fi; }\n");
         builder.append("__maint_finish(){ local exit_code=$?; printf '__TERMUX_MAINT_DONE__:%s:%s\\n' \"$STAGE_SLUG\" \"$exit_code\" | tee -a \"$LOG_FILE\"; }\n");
         builder.append("trap __maint_finish EXIT\n");
         builder.append("log \"==> $STAGE_NAME\"\n");
+        builder.append("run_environment_probe\n");
         builder.append(scriptBody).append('\n');
         return builder.toString();
     }
@@ -2475,10 +2608,24 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         boolean ubuntuPackagesComplete = officialDocsSynced && isUbuntuPackagesStageComplete();
         boolean entryUbuntuConfigured = ubuntuPackagesComplete && isEntryUbuntuConfigured();
         boolean openCodeInstalled = entryUbuntuConfigured && isOpenCodeInstalled();
-        boolean codexInstalled = ubuntuPackagesComplete && isCodexInstalled();
-        boolean claudeCodeInstalled = ubuntuPackagesComplete && isClaudeCodeInstalled();
+        boolean nodeJsInstalled = ubuntuPackagesComplete && isNodeJsInstalled();
+        boolean codexInstalled = openCodeInstalled && isCodexInstalled();
+        boolean claudeCodeInstalled = openCodeInstalled && isClaudeCodeInstalled();
         boolean systemEnvSkillInstalled = openCodeInstalled && isSystemEnvSkillInstalled();
-        boolean openCodeRunning = systemEnvSkillInstalled && isOpenCodeWebReachable();
+        boolean bootstrapDownloaded = systemEnvSkillInstalled && isBootstrapDownloaded();
+        boolean serviceManagerInstalled = systemEnvSkillInstalled && isServiceManagerInstalled();
+        boolean ccConnectInstalled = systemEnvSkillInstalled && isCcConnectInstalled();
+        boolean ccProxyInstalled = systemEnvSkillInstalled && isCcProxyInstalled();
+        boolean openHouseKeyToolInstalled = systemEnvSkillInstalled && isOpenHouseKeyToolInstalled();
+        boolean smallPhoneInstalled = systemEnvSkillInstalled && isSmallPhoneInstalled();
+        boolean guideSiteSynced = isGuideSiteSynced();
+        boolean docsDepsInstalled = isDocsDepsInstalled();
+        boolean requiredComponentsInstalled = serviceManagerInstalled
+            && ccConnectInstalled
+            && ccProxyInstalled
+            && openHouseKeyToolInstalled
+            && smallPhoneInstalled;
+        boolean openCodeRunning = requiredComponentsInstalled && isOpenCodeWebReachable();
 
         snapshot.opencodeReachable = openCodeRunning;
 
@@ -2489,9 +2636,19 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         Integer ubuntuPackagesExitCode = readLastExitCode(StageAction.UBUNTU_PACKAGES);
         Integer configureEntryUbuntuExitCode = readLastExitCode(StageAction.CONFIGURE_ENTRY_UBUNTU);
         Integer installOpenCodeExitCode = readLastExitCode(StageAction.INSTALL_OPENCODE);
+        Integer installNodeJsExitCode = readLastExitCode(StageAction.INSTALL_NODEJS);
         Integer installCodexExitCode = readLastExitCode(StageAction.INSTALL_CODEX);
         Integer installClaudeCodeExitCode = readLastExitCode(StageAction.INSTALL_CLAUDE_CODE);
         Integer installSystemEnvSkillExitCode = readLastExitCode(StageAction.INSTALL_SYSTEM_ENV_SKILL);
+        Integer downloadBootstrapExitCode = readLastExitCode(StageAction.DOWNLOAD_BOOTSTRAP);
+        Integer installRequiredComponentsExitCode = readLastExitCode(StageAction.INSTALL_REQUIRED_COMPONENTS);
+        Integer installServiceManagerExitCode = readLastExitCode(StageAction.INSTALL_SERVICE_MANAGER);
+        Integer installCcConnectExitCode = readLastExitCode(StageAction.INSTALL_CC_CONNECT);
+        Integer installCcProxyExitCode = readLastExitCode(StageAction.INSTALL_CC_PROXY);
+        Integer installOpenHouseKeyToolExitCode = readLastExitCode(StageAction.INSTALL_OPENHOUSE_KEY_TOOL);
+        Integer installSmallPhoneExitCode = readLastExitCode(StageAction.INSTALL_SMALLPHONE);
+        Integer syncGuideSiteExitCode = readLastExitCode(StageAction.SYNC_GUIDE_SITE);
+        Integer installDocsDepsExitCode = readLastExitCode(StageAction.INSTALL_DOCS_DEPS);
         Integer startExitCode = readLastExitCode(StageAction.START);
 
         snapshot.presentations.put(
@@ -2579,10 +2736,21 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         snapshot.presentations.put(
+            StageAction.INSTALL_NODEJS,
+            nodeJsInstalled
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_install_nodejs_complete))
+                : (!ubuntuPackagesComplete
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_nodejs_blocked))
+                    : failedOrReady(installNodeJsExitCode,
+                        getString(R.string.stage_detail_install_nodejs_failed),
+                        getString(R.string.stage_detail_install_nodejs_ready)))
+        );
+
+        snapshot.presentations.put(
             StageAction.INSTALL_CODEX,
             codexInstalled
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_install_codex_complete))
-                : (!ubuntuPackagesComplete
+                : (!openCodeInstalled
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_codex_blocked))
                     : failedOrReady(installCodexExitCode,
                         getString(R.string.stage_detail_install_codex_failed),
@@ -2593,7 +2761,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
             StageAction.INSTALL_CLAUDE_CODE,
             claudeCodeInstalled
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_install_claude_code_complete))
-                : (!ubuntuPackagesComplete
+                : (!openCodeInstalled
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_claude_code_blocked))
                     : failedOrReady(installClaudeCodeExitCode,
                         getString(R.string.stage_detail_install_claude_code_failed),
@@ -2601,10 +2769,40 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         snapshot.presentations.put(
+            StageAction.DOWNLOAD_BOOTSTRAP,
+            bootstrapDownloaded
+                ? StagePresentation.complete(this, getString(R.string.button_install_openhouse_bootstrap))
+                : (!systemEnvSkillInstalled
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_required_components_blocked))
+                    : failedOrReady(downloadBootstrapExitCode,
+                        getString(R.string.stage_detail_install_required_components_failed),
+                        getString(R.string.button_install_openhouse_bootstrap)))
+        );
+
+        snapshot.presentations.put(
+            StageAction.INSTALL_REQUIRED_COMPONENTS,
+            requiredComponentsInstalled
+                ? StagePresentation.complete(this, getString(R.string.stage_detail_install_required_components_complete))
+                : (!systemEnvSkillInstalled
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_required_components_blocked))
+                    : failedOrReady(installRequiredComponentsExitCode,
+                        getString(R.string.stage_detail_install_required_components_failed),
+                        getString(R.string.stage_detail_install_required_components_ready)))
+        );
+
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_SERVICE_MANAGER, serviceManagerInstalled, systemEnvSkillInstalled, installServiceManagerExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_CC_CONNECT, ccConnectInstalled, systemEnvSkillInstalled, installCcConnectExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_CC_PROXY, ccProxyInstalled, systemEnvSkillInstalled, installCcProxyExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_OPENHOUSE_KEY_TOOL, openHouseKeyToolInstalled, systemEnvSkillInstalled, installOpenHouseKeyToolExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_SMALLPHONE, smallPhoneInstalled, systemEnvSkillInstalled, installSmallPhoneExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.SYNC_GUIDE_SITE, guideSiteSynced, systemEnvSkillInstalled, syncGuideSiteExitCode);
+        putRequiredComponentPresentation(snapshot, StageAction.INSTALL_DOCS_DEPS, docsDepsInstalled, systemEnvSkillInstalled, installDocsDepsExitCode);
+
+        snapshot.presentations.put(
             StageAction.START,
             openCodeRunning
                 ? StagePresentation.complete(this, getString(R.string.stage_detail_start_complete))
-                : (!systemEnvSkillInstalled
+                : (!requiredComponentsInstalled
                     ? StagePresentation.blocked(this, getString(R.string.stage_detail_start_blocked))
                     : failedOrReady(startExitCode,
                         getString(R.string.stage_detail_start_failed),
@@ -2613,7 +2811,7 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
 
         snapshot.presentations.put(
             StageAction.RESTART,
-            !systemEnvSkillInstalled
+            !requiredComponentsInstalled
                 ? StagePresentation.blocked(this, getString(R.string.stage_detail_restart_blocked))
                 : (openCodeRunning
                     ? StagePresentation.ready(this, getString(R.string.stage_detail_restart_ready_running))
@@ -2621,6 +2819,25 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         );
 
         return snapshot;
+    }
+
+    private void putRequiredComponentPresentation(
+        StageCheckSnapshot snapshot,
+        StageAction stageAction,
+        boolean complete,
+        boolean prerequisiteComplete,
+        Integer exitCode
+    ) {
+        snapshot.presentations.put(
+            stageAction,
+            complete
+                ? StagePresentation.complete(this, getStageTitle(stageAction))
+                : (!prerequisiteComplete
+                    ? StagePresentation.blocked(this, getString(R.string.stage_detail_install_required_components_blocked))
+                    : failedOrReady(exitCode,
+                        getString(R.string.stage_detail_install_required_components_failed),
+                        getStageDescription(stageAction, getString(R.string.stage_detail_install_required_components_ready))))
+        );
     }
 
     private StagePresentation failedOrReady(Integer exitCode, String failedDetail, String readyDetail) {
@@ -2698,21 +2915,76 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         ).isSuccess();
     }
 
+    private boolean isNodeJsInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
     private boolean isCodexInstalled() {
         return runTermuxCommand(
-            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v codex >/dev/null 2>&1'"
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v codex >/dev/null 2>&1'"
         ).isSuccess();
     }
 
     private boolean isClaudeCodeInstalled() {
         return runTermuxCommand(
-            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v claude >/dev/null 2>&1'"
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v claude >/dev/null 2>&1'"
         ).isSuccess();
     }
 
     private boolean isSystemEnvSkillInstalled() {
         return runTermuxCommand(
             "proot-distro login ubuntu -- bash -lc 'test -f \"$HOME/.config/opencode/skills/system-environment-description/SKILL.md\" && test -f \"$HOME/.config/opencode/skills/install-ai-agents/SKILL.md\"'"
+        ).isSuccess();
+    }
+
+    private boolean isBootstrapDownloaded() {
+        return new File(TermuxConstants.TERMUX_HOME_DIR_PATH, "openhouse-bootstrap.sh").isFile()
+            || runTermuxCommand(
+                "proot-distro login ubuntu -- bash -lc 'test -f \"$HOME/openhouse-bootstrap.sh\" || test -f \"$HOME/.openhouse-bootstrap/scripts/55-install-required-components.sh\"'"
+            ).isSuccess();
+    }
+
+    private boolean isServiceManagerInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; command -v service-manager >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
+    private boolean isCcConnectInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v cc-connect >/dev/null 2>&1 || test -x \"$HOME/openhouse-repos/openhouse-connect/cc-connect\" || test -x \"/root/cc-connect-fresh/cc-connect\"'"
+        ).isSuccess();
+    }
+
+    private boolean isCcProxyInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; command -v cc-proxy >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
+    private boolean isOpenHouseKeyToolInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; command -v openhouse-key >/dev/null 2>&1'"
+        ).isSuccess();
+    }
+
+    private boolean isSmallPhoneInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'export PATH=\"$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; for dir in \"$HOME/openhouse-repos/smallphone-active\" \"/root/projects/smallphone/smallphone-active\"; do [ -d \"$dir\" ] || continue; [ -f \"$dir/smallphone-app/package.json\" ] || continue; if [ -d \"$dir/smallphone-app/node_modules\" ] || [ -d \"$dir/node_modules\" ]; then exit 0; fi; done; exit 1'"
+        ).isSuccess();
+    }
+
+    private boolean isGuideSiteSynced() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'test -d \"$HOME/openhouse-repos/openhouse-app-guide-site\" || test -d \"$HOME/product-docs/guide-site\"'"
+        ).isSuccess();
+    }
+
+    private boolean isDocsDepsInstalled() {
+        return runTermuxCommand(
+            "proot-distro login ubuntu -- bash -lc 'for dir in \"$HOME/openhouse-repos/openhouse-docs\" \"$HOME/product-docs/docs\"; do [ -d \"$dir\" ] || continue; if [ -d \"$dir/node_modules\" ] || [ -d \"$dir/.venv\" ]; then exit 0; fi; done; exit 1'"
         ).isSuccess();
     }
 
@@ -3684,18 +3956,34 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         UBUNTU_PACKAGES("ubuntu_packages", "update-ubuntu-packages.sh"),
         CONFIGURE_ENTRY_UBUNTU("entry_ubuntu", "configure-entry-ubuntu.sh"),
         INSTALL_OPENCODE("install_opencode", "install-opencode.sh"),
+        INSTALL_NODEJS("install_nodejs", null),
         INSTALL_CODEX("install_codex", "install-codex.sh"),
         INSTALL_CLAUDE_CODE("install_claude_code", "install-claude-code.sh"),
         INSTALL_SYSTEM_ENV_SKILL("install_system_env_skill", "install-system-environment-skill.sh"),
+        DOWNLOAD_BOOTSTRAP("download_bootstrap", "install-required-components.sh", "bootstrap"),
+        INSTALL_REQUIRED_COMPONENTS("install_required_components", "install-required-components.sh"),
+        INSTALL_SERVICE_MANAGER("install_service_manager", "install-required-components.sh", "service-manager"),
+        INSTALL_CC_CONNECT("install_cc_connect", "install-required-components.sh", "cc-connect"),
+        INSTALL_CC_PROXY("install_cc_proxy", "install-required-components.sh", "cc-proxy"),
+        INSTALL_OPENHOUSE_KEY_TOOL("install_openhouse_key_tool", "install-required-components.sh", "openhouse-key-tool"),
+        INSTALL_SMALLPHONE("install_smallphone", "install-required-components.sh", "smallphone"),
+        SYNC_GUIDE_SITE("sync_guide_site", "install-required-components.sh", "openhouse-app-guide-site"),
+        INSTALL_DOCS_DEPS("install_docs_deps", "install-required-components.sh", "openhouse-docs"),
         START("start", "start-opencode.sh"),
         RESTART("restart", "restart-opencode.sh");
 
         final String slug;
         final String assetName;
+        final String requiredComponentTargets;
 
         StageAction(String slug, String assetName) {
+            this(slug, assetName, null);
+        }
+
+        StageAction(String slug, String assetName, String requiredComponentTargets) {
             this.slug = slug;
             this.assetName = assetName;
+            this.requiredComponentTargets = requiredComponentTargets;
         }
 
         String label(MaintenanceCenterActivity activity) {
@@ -3705,10 +3993,20 @@ public class MaintenanceCenterActivity extends AppCompatActivity {
         boolean shouldRefreshBeforeRun() {
             return this == SYNC_OFFICIAL_DOCS
                 || this == INSTALL_OPENCODE
+                || this == INSTALL_NODEJS
                 || this == CONFIGURE_ENTRY_UBUNTU
                 || this == INSTALL_CODEX
                 || this == INSTALL_CLAUDE_CODE
                 || this == INSTALL_SYSTEM_ENV_SKILL
+                || this == DOWNLOAD_BOOTSTRAP
+                || this == INSTALL_REQUIRED_COMPONENTS
+                || this == INSTALL_SERVICE_MANAGER
+                || this == INSTALL_CC_CONNECT
+                || this == INSTALL_CC_PROXY
+                || this == INSTALL_OPENHOUSE_KEY_TOOL
+                || this == INSTALL_SMALLPHONE
+                || this == SYNC_GUIDE_SITE
+                || this == INSTALL_DOCS_DEPS
                 || this == START
                 || this == RESTART;
         }
