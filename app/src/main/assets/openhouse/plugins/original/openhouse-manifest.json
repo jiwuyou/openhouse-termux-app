@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "version": "2026.05.11.1",
+  "version": "2026.05.16.1",
   "title": "OpenHouse 维护器",
   "sourceName": "OpenHouse APK 原始插件",
-  "updatedAt": "2026-05-11",
+  "updatedAt": "2026-05-16",
   "bootstrapUrl": "https://raw.githubusercontent.com/jiwuyou/openhouse-bootstrap/main/bootstrap.sh",
   "defaultOneClickAction": "full",
   "stageFlow": [
@@ -18,8 +18,13 @@
       "stages": ["ubuntu_packages"]
     },
     {
+      "title": "设置启动入口",
+      "description": "打开 Termux 后直接进入 Ubuntu，放在安装 OpenCode 之前执行。",
+      "stages": ["entry_ubuntu"]
+    },
+    {
       "title": "安装 Agent 运行时",
-      "description": "先安装 OpenCode，再准备 Node.js，随后安装 Codex、Claude Code 和 OpenCode skills。",
+      "description": "先设置启动后直接进入 Ubuntu，再安装 OpenCode、Node.js、Codex、Claude Code 和 OpenCode skills。",
       "stages": ["install_opencode", "install_nodejs", "install_codex", "install_claude_code", "install_system_env_skill"]
     },
     {
@@ -131,6 +136,12 @@
       "action": { "type": "bootstrap", "args": ["ubuntu-packages"] }
     },
     {
+      "id": "entry_ubuntu",
+      "title": "启动后直接进入 Ubuntu",
+      "description": "写入启动入口配置；下次打开 Termux 自动进入 Ubuntu。",
+      "action": { "type": "bootstrap", "args": ["entry-ubuntu"] }
+    },
+    {
       "id": "install_opencode",
       "title": "下载 OpenCode",
       "description": "从 OpenCode 安装源下载并安装 opencode。",
@@ -207,12 +218,6 @@
       "title": "可选：下载 docs 构建依赖",
       "description": "默认跳过；仅构建/发布文档站时需要。",
       "action": { "type": "bootstrap", "args": ["required-components"] }
-    },
-    {
-      "id": "entry_ubuntu",
-      "title": "启动后直接进入 Ubuntu",
-      "description": "写入启动入口配置；下次打开 Termux 自动进入 Ubuntu。",
-      "action": { "type": "bootstrap", "args": ["entry-ubuntu"] }
     },
     {
       "id": "install_required_components",
